@@ -1,0 +1,12 @@
+Model V Comments
+
+- sell_and_buy.go
+  - Program that runs first to look for available cash to purchase more stocks.
+  - If any of the stocks are below purchased price, sell them (just that tax lot)
+  - If multiple stocks in play calculate percentage across all stocks
+  - Purchase any stocks as needed.
+
+- purchase_covered_calls.go
+  - Look for any lots of 100 shares to purchase X number of coverd calls - SELL_TO_OPEN
+  - Calculate the expiration date to purchase, looking at initially 4 days out.
+  - Execute orders
