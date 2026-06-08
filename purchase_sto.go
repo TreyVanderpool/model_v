@@ -3,20 +3,19 @@
 package main
 
 import (
-	"encoding/json"
-	"flag"
-	"fmt"
-	"sort"
-	"strings"
+  "encoding/json"
+  "flag"
+  "fmt"
+  "sort"
+  "strings"
 
-	odb "github.com/TreyVanderpool/oliver-golib/db"
-	oinit "github.com/TreyVanderpool/oliver-golib/init"
-	ol "github.com/TreyVanderpool/oliver-golib/logging"
-	osch "github.com/TreyVanderpool/oliver-golib/schwab"
-	osql "github.com/TreyVanderpool/oliver-golib/sql"
-	otxt "github.com/TreyVanderpool/oliver-golib/text"
-	ou "github.com/TreyVanderpool/oliver-golib/utils"
-	// ofonts "github.com/TreyVanderpool/oliver-golib/fonts"
+  odb "github.com/TreyVanderpool/oliver-golib/db"
+  oinit "github.com/TreyVanderpool/oliver-golib/init"
+  ol "github.com/TreyVanderpool/oliver-golib/logging"
+  osch "github.com/TreyVanderpool/oliver-golib/schwab"
+  osql "github.com/TreyVanderpool/oliver-golib/sql"
+  otxt "github.com/TreyVanderpool/oliver-golib/text"
+  ou "github.com/TreyVanderpool/oliver-golib/utils"
 )
 
 const (
@@ -42,11 +41,11 @@ var (
 //------------------------------------------------------------------------------
 func main() {
   lsDBName := flag.String( "db", "stocks_test", "database name" )
-	lsLogLevel := flag.String( "lvl", "info", "Log level (debug, info, warn, error)" )
+  lsLogLevel := flag.String( "lvl", "info", "Log level (debug, info, warn, error)" )
   gbUseTestData = flag.Bool( "testdata", false, "use test data for account info" )
   gbSendText = flag.Bool( "sendtext", false, "send text on orders or warnings" )
   gbSchwabLive = flag.Bool( "schwab", false, "send live requests to Schwab, production mode")
-	flag.Parse()
+  flag.Parse()
 
   if *gbUseTestData {
     _LoadTestData()
@@ -130,22 +129,26 @@ func _ProcessCoveredCall( acCC osql.VCoveredCall ) ( error ) {
   lfAvailableShares := lfExistingShares - float64(liExistingContractCount * 100)
   liAvailableContracts := int(lfAvailableShares / 100)
 
-  Log.Info( "  -- Existing Contracts: %3d  Existing Shares: %7.2f  Available Shares: %7.2f  Available Contracts: %3d",
-            liExistingContractCount, lfExistingShares, lfAvailableShares, liAvailableContracts )
+  Log.Info( "  -- Existing Contracts: %3d  Existing Shares: %7.2f  Available Shares: %7.2f  Available Contracts: %3d  Check: %T",
+            liExistingContractCount, lfExistingShares, lfAvailableShares, liAvailableContracts, acCC.CheckValues )
 
-  if lfExistingShares <= 0 {
-    Log.Info( "  ## %-6s equity not found in this account. Skipping this equity.", acCC.Symbol )
-    return nil
-  }
+  if acCC.CheckValues {
+    liAvailableContracts = 1
+  } else {
+    if lfExistingShares <= 0 {
+      Log.Info( "  ## %-6s equity not found in this account. Skipping this equity.", acCC.Symbol )
+      return nil
+    }
 
-  if liAvailableContracts < 1 {
-    Log.Info( "  ## No contracts available for processing... Skipping this equity." )
-    return nil
-  }
+    if liAvailableContracts < 1 {
+      Log.Info( "  ## No contracts available for processing... Skipping this equity." )
+      return nil
+    }
 
-  if acCC.MaxContracts > 0 && liAvailableContracts > acCC.MaxContracts {
-    liAvailableContracts = acCC.MaxContracts
-    Log.Info( "  ## Max contract value reset available contracts to: %d", liAvailableContracts )
+    if acCC.MaxContracts > 0 && liAvailableContracts > acCC.MaxContracts {
+      liAvailableContracts = acCC.MaxContracts
+      Log.Info( "  ## Max contract value reset available contracts to: %d", liAvailableContracts )
+    }
   }
 
   // Find the appropiate Expire/Strike price to use for this execution.
@@ -258,18 +261,20 @@ func _GetExpirationDate( acCC osql.VCoveredCall, aiContractCount int ) ( *osch.C
   Log.Info( "  -- CALL Ask/Bid price difference, Ask: %5.2f  Bid: %5.2f  DiffPct: %6.2f",
             lcStrikePrice.Call.Ask, lcStrikePrice.Call.Bid, lfABPctDiff )
 
-  if lfABPctDiff > 10 {
-    lsText := fmt.Sprintf( "Purchase Covered Calls:\n--- Warning - Ask/Bid Spread too high.\n%-6s : %s : %.2f\nAsk: %5.2f  Bid: %5.2f  Diff:%6.2f%%\nAccount: *****%s\nContract Count: %d\nReview and manually place order!",
-                           acCC.Symbol, 
-                           lcExpireDate.ExpireDate, 
-                           lcStrikePrice.StrikePrice, 
-                           lcStrikePrice.Call.Ask, 
-                           lcStrikePrice.Call.Bid, 
-                           lfABPctDiff,
-                           acCC.AccountNbr[len(acCC.AccountNbr)-3:],
-                           aiContractCount )
-    _SendText( "ask_bid_pct", lsText )
-    return nil, nil, nil
+  if ! acCC.CheckValues {
+    if lfABPctDiff > 10 {
+      lsText := fmt.Sprintf( "Purchase Covered Calls:\n--- Warning - Ask/Bid Spread too high.\n%-6s : %s : %.2f\nAsk: %5.2f  Bid: %5.2f  Diff:%6.2f%%\nAccount: *****%s\nContract Count: %d\nReview and manually place order!",
+                            acCC.Symbol, 
+                            lcExpireDate.ExpireDate, 
+                            lcStrikePrice.StrikePrice, 
+                            lcStrikePrice.Call.Ask, 
+                            lcStrikePrice.Call.Bid, 
+                            lfABPctDiff,
+                            acCC.AccountNbr[len(acCC.AccountNbr)-3:],
+                            aiContractCount )
+      _SendText( "ask_bid_pct", lsText )
+      return nil, nil, nil
+    }
   }
 
   return lcExpireDate, lcStrikePrice, nil
@@ -283,6 +288,21 @@ func _CreateAndPlaceOrder( acCC osql.VCoveredCall, acExpireDate *osch.CStrike, a
   lcOrder := Schwab.NewMarketOrder( lsSymbol, float64(aiContractCount), osch.Instruction(osch.SELL_TO_OPEN), osch.Duration(osch.DAY) )
   lcOrder.OrderLegCollection[0].Instrument.AssetType = "OPTION"
   lsMsg := ""
+  lfEstValue := 0.0
+  lfEstValue = ( acStrikePrice.Call.Ask + acStrikePrice.Call.Bid ) / 2
+  lfEstValue *= ( float64(aiContractCount) * 100 )
+
+  if acCC.CheckValues {
+      lsMsg = fmt.Sprintf( "Purchase Covered Calls:\nCHECK VALUE...\n%-6s : %s : %.2f\nAccount: %s\nContract Count: %d\nEstimated Value: $%s",
+                           acCC.Symbol, 
+                           acExpireDate.ExpireDate, 
+                           acStrikePrice.StrikePrice, 
+                           acCC.AccountNbr[len(acCC.AccountNbr)-3:],
+                           aiContractCount,
+                           ou.Commas( "%.0f", lfEstValue ) )
+      _SendText( "preview_order", lsMsg )
+      return nil
+  }
 
   // Not LIVE, issue a Preview Order and send text...
   if ! *gbSchwabLive {
@@ -291,12 +311,13 @@ func _CreateAndPlaceOrder( acCC osql.VCoveredCall, acExpireDate *osch.CStrike, a
       Log.Info( "REQ : %s", Schwab.HTTP.RequestBody )
       Log.Info( "RESP: %+v", lcResp )
     } else {
-      lsMsg = fmt.Sprintf( "Purchase Covered Calls:\nPreview Order was successful...\n%-6s : %s : %.2f\nAccount: *****%s\nContract Count: %d",
+      lsMsg = fmt.Sprintf( "Purchase Covered Calls:\nPreview Order was successful...\n%-6s : %s : %.2f\nAccount: *****%s\nContract Count: %d\nEstimated Value: $%s",
                            acCC.Symbol, 
                            acExpireDate.ExpireDate, 
                            acStrikePrice.StrikePrice, 
                            acCC.AccountNbr[len(acCC.AccountNbr)-3:],
-                           aiContractCount )
+                           aiContractCount,
+                           ou.Commas( "%.0f", lfEstValue ) )
       _SendText( "preview_order", lsMsg )
       Log.Info( "RESP: %s", string(Schwab.HTTP.ResponseBody) )
     }
