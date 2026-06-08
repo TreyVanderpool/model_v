@@ -10,3 +10,12 @@ Model V Comments
   - Look for any lots of 100 shares to purchase X number of coverd calls - SELL_TO_OPEN
   - Calculate the expiration date to purchase, looking at initially 4 days out.
   - Execute orders
+
+- Daily Text Message
+  End Of Day:
+  Trey & Lori: *****xyz
+    Covered Calls:         $254
+    Account Balance:    $122,000  U  $546
+  Trey & Lori: *****abc
+    Covered Calls:         $254
+    Account Balance:    $122,000  U  $546
