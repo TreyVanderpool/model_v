@@ -3,18 +3,18 @@
 package main
 
 import (
-	"flag"
-	"fmt"
-	"strings"
-	"time"
+  "flag"
+  "fmt"
+  "strings"
+  "time"
 
-	odb "github.com/TreyVanderpool/oliver-golib/db"
-	oinit "github.com/TreyVanderpool/oliver-golib/init"
-	ol "github.com/TreyVanderpool/oliver-golib/logging"
-	osch "github.com/TreyVanderpool/oliver-golib/schwab"
-	osql "github.com/TreyVanderpool/oliver-golib/sql"
-	ou "github.com/TreyVanderpool/oliver-golib/utils"
-	otxt "github.com/TreyVanderpool/oliver-golib/text"
+  odb "github.com/TreyVanderpool/oliver-golib/db"
+  oinit "github.com/TreyVanderpool/oliver-golib/init"
+  ol "github.com/TreyVanderpool/oliver-golib/logging"
+  osch "github.com/TreyVanderpool/oliver-golib/schwab"
+  osql "github.com/TreyVanderpool/oliver-golib/sql"
+  ou "github.com/TreyVanderpool/oliver-golib/utils"
+  otxt "github.com/TreyVanderpool/oliver-golib/text"
   // ofont "github.com/TreyVanderpool/oliver-golib/fonts"
   oimg "github.com/TreyVanderpool/oliver-golib/image"
 )
@@ -38,10 +38,10 @@ var (
 //------------------------------------------------------------------------------
 func main() {
   lsDBName := flag.String( "db", "stocks_test", "Database name" )
-	lsLogLevel := flag.String( "lvl", "info", "Log level (debug, info, warn, error)" )
+  lsLogLevel := flag.String( "lvl", "info", "Log level (debug, info, warn, error)" )
   lsOrdersDate := flag.String( "od", time.Now().Format( ou.YYYY_MM_DD ), "Orders date to retrieve (YYYY-MM-DD)" )
   gbSendText = flag.Bool( "sendtext", false, "send text" )
-	flag.Parse()
+  flag.Parse()
 
   Log = oinit.Init( oinit.INIT_LOG, lsLogLevel ).(ol.ILogger)
   Log.SetPatterns( "%M\n", "%D %-5L %T:%F:%# %M\n" )
