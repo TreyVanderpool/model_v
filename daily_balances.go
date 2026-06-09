@@ -33,6 +33,14 @@ var (
   gcFont       *oimg.Font
 )
 
+type TAG struct {
+  ol.ILogTag
+  PgmName               string
+}
+func (t TAG) GetTag() (string) {
+  return t.PgmName
+}
+
 //------------------------------------------------------------------------------
 // Function: main
 //------------------------------------------------------------------------------
@@ -44,7 +52,8 @@ func main() {
   flag.Parse()
 
   Log = oinit.Init( oinit.INIT_LOG, lsLogLevel ).(ol.ILogger)
-  Log.SetPatterns( "%M\n", "%D %-5L %T:%F:%# %M\n" )
+  Log.SetPatterns( "%M\n", "%D %-5L %T:%-20.20F:%# %M\n" )
+  Log.SetTag( TAG{ PgmName: "dailybal" } )
   DB = oinit.Init( oinit.INIT_DB, lsDBName ).(*odb.DB)
   Schwab = oinit.Init( oinit.INIT_SCHWAB, Log, DB ).(*osch.SCHWAB)
   SQLs = oinit.Init( oinit.INIT_SQLS, Log, DB ).(osql.SQLs)
