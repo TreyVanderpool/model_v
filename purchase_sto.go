@@ -36,6 +36,14 @@ var (
   gcAcctMap           map[string]*osch.Account = make( map[string]*osch.Account )
 )
 
+type TAG struct {
+  ol.ILogTag
+  PgmName               string
+}
+func (t TAG) GetTag() (string) {
+  return t.PgmName
+}
+
 //------------------------------------------------------------------------------
 // Function: main
 //------------------------------------------------------------------------------
@@ -52,7 +60,8 @@ func main() {
   }
 
   Log = oinit.Init( oinit.INIT_LOG, lsLogLevel ).(ol.ILogger)
-  Log.SetPatterns( "%M\n", "%D %-5L %T:%F:%# %M\n" )
+  Log.SetPatterns( "%M\n", "%D %-5L %T:%-20.20F:%# %M\n" )
+  Log.SetTag( TAG{ PgmName: "pursto" } )
   DB = oinit.Init( oinit.INIT_DB, Log, lsDBName ).(*odb.DB)
   defer Log.Info( "Exiting Program" )
 
@@ -129,7 +138,7 @@ func _ProcessCoveredCall( acCC osql.VCoveredCall ) ( error ) {
   lfAvailableShares := lfExistingShares - float64(liExistingContractCount * 100)
   liAvailableContracts := int(lfAvailableShares / 100)
 
-  Log.Info( "  -- Existing Contracts: %3d  Existing Shares: %7.2f  Available Shares: %7.2f  Available Contracts: %3d  Check: %T",
+  Log.Info( "  -- Exist Contracts/Shares: %3d / %7.2f  Avail Shares/Contracts: %7.2f / %3d  Check: %t",
             liExistingContractCount, lfExistingShares, lfAvailableShares, liAvailableContracts, acCC.CheckValues )
 
   if acCC.CheckValues {
@@ -293,12 +302,10 @@ func _CreateAndPlaceOrder( acCC osql.VCoveredCall, acExpireDate *osch.CStrike, a
   lfEstValue *= ( float64(aiContractCount) * 100 )
 
   if acCC.CheckValues {
-      lsMsg = fmt.Sprintf( "Purchase Covered Calls:\nCHECK VALUE...\n%-6s : %s : %.2f\nAccount: %s\nContract Count: %d\nEstimated Value: $%s",
+      lsMsg = fmt.Sprintf( "Purchase Covered Calls:\nCHECK VALUE...\n%-6s : %s : %.2f\nEstimated Value: $%s",
                            acCC.Symbol, 
                            acExpireDate.ExpireDate, 
                            acStrikePrice.StrikePrice, 
-                           acCC.AccountNbr[len(acCC.AccountNbr)-3:],
-                           aiContractCount,
                            ou.Commas( "%.0f", lfEstValue ) )
       _SendText( "preview_order", lsMsg )
       return nil
