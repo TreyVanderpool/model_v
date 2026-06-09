@@ -165,8 +165,9 @@ func _ProcessCoveredCall( acCC osql.VCoveredCall ) ( error ) {
 
   if lcExpireDate == nil || lcStrikePrice == nil { return nil }
 
-  Log.Info( "USING Expire Date: %s / Strike Price: %7.2f  Est Value: %7.2f", 
-            lcExpireDate.ExpireDate, 
+  Log.Info( "USING %-6s Expire Date: %s / Strike Price: %7.2f  Est Value: %7.2f",
+            acCC.Symbol,
+            lcExpireDate.ExpireDate,
             lcStrikePrice.StrikePrice,
             _EstimatedValue( lcStrikePrice, liAvailableContracts ) )
 
