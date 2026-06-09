@@ -165,7 +165,10 @@ func _ProcessCoveredCall( acCC osql.VCoveredCall ) ( error ) {
 
   if lcExpireDate == nil || lcStrikePrice == nil { return nil }
 
-  Log.Info( "USING Expire Date: %s with Strike Price: %7.2f", lcExpireDate.ExpireDate, lcStrikePrice.StrikePrice )
+  Log.Info( "USING Expire Date: %s / Strike Price: %7.2f  Est Value: %7.2f", 
+            lcExpireDate.ExpireDate, 
+            lcStrikePrice.StrikePrice,
+            _EstimatedValue( lcStrikePrice, liAvailableContracts ) )
 
   _CreateAndPlaceOrder( acCC, lcExpireDate, lcStrikePrice, liAvailableContracts )
 
@@ -297,9 +300,9 @@ func _CreateAndPlaceOrder( acCC osql.VCoveredCall, acExpireDate *osch.CStrike, a
   lcOrder := Schwab.NewMarketOrder( lsSymbol, float64(aiContractCount), osch.Instruction(osch.SELL_TO_OPEN), osch.Duration(osch.DAY) )
   lcOrder.OrderLegCollection[0].Instrument.AssetType = "OPTION"
   lsMsg := ""
-  lfEstValue := 0.0
-  lfEstValue = ( acStrikePrice.Call.Ask + acStrikePrice.Call.Bid ) / 2
-  lfEstValue *= ( float64(aiContractCount) * 100 )
+  lfEstValue := _EstimatedValue( acStrikePrice, aiContractCount )
+  // lfEstValue = ( acStrikePrice.Call.Ask + acStrikePrice.Call.Bid ) / 2
+  // lfEstValue *= ( float64(aiContractCount) * 100 )
 
   if acCC.CheckValues {
       lsMsg = fmt.Sprintf( "Purchase Covered Calls:\nCHECK VALUE...\n%-6s : %s : %.2f\nEstimated Value: $%s",
@@ -385,6 +388,15 @@ func _SendText( asTextName, asTextMsg string ) {
   if *gbSendText {
     lcText.SendMsg( asTextMsg )
   }
+}
+
+//--------------------------------------------------------------
+// Function: _EstimatedValue
+//--------------------------------------------------------------
+func _EstimatedValue( acStrikePrice *osch.CPrice, aiContractCount int ) ( float64 ) {
+  lfEstValue := ( acStrikePrice.Call.Ask + acStrikePrice.Call.Bid ) / 2
+  lfEstValue *= ( float64(aiContractCount) * 100 )
+  return lfEstValue
 }
 
 //--------------------------------------------------------------
