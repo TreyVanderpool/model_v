@@ -53,7 +53,7 @@ func main() {
 
   Log = oinit.Init( oinit.INIT_LOG, lsLogLevel ).(ol.ILogger)
   Log.SetPatterns( "%M\n", "%D %-5L %T:%-20.20F:%# %M\n" )
-  Log.SetTag( TAG{ PgmName: "dailybal" } )
+  Log.SetTag( TAG{ PgmName: "dlybal" } )
   DB = oinit.Init( oinit.INIT_DB, lsDBName ).(*odb.DB)
   Schwab = oinit.Init( oinit.INIT_SCHWAB, Log, DB ).(*osch.SCHWAB)
   SQLs = oinit.Init( oinit.INIT_SQLS, Log, DB ).(osql.SQLs)
@@ -89,10 +89,10 @@ func main() {
     _ProcessOrders( lAcct, &lcStartDate, &lcEndDate )
   }
 
-  // Walk through each of the accounts and process all their transactions for the day.
-  for _, lAcct := range lcAccts {
-    _ProcessTransactions( lAcct, &lcStartDate, &lcEndDate )
-  }
+  // // Walk through each of the accounts and process all their transactions for the day.
+  // for _, lAcct := range lcAccts {
+  //   _ProcessTransactions( lAcct, &lcStartDate, &lcEndDate )
+  // }
 
   _GenerateDailyReport( lcAccts )
 }
@@ -275,40 +275,40 @@ func _ProcessOrders( acAcct osch.AcctInfo, acStartDate, acEndDate *time.Time ) {
   }
 }
 
-//-------------------------------------------------------------
-// Function: _ProcessTransactions
-//-------------------------------------------------------------
-func _ProcessTransactions( acAcct osch.AcctInfo, acStartDate, acEndDate *time.Time ) {
-  Log.Info( "Retrieving transactions   on %s for account %s : %s", acStartDate.Format( ou.YYYY_MM_DD ), acAcct.GetMaskedNbr(), acAcct.Owners )
+// //-------------------------------------------------------------
+// // Function: _ProcessTransactions
+// //-------------------------------------------------------------
+// func _ProcessTransactions( acAcct osch.AcctInfo, acStartDate, acEndDate *time.Time ) {
+//   Log.Info( "Retrieving transactions   on %s for account %s : %s", acStartDate.Format( ou.YYYY_MM_DD ), acAcct.GetMaskedNbr(), acAcct.Owners )
 
-  Schwab.SetAccountNbr( acAcct.AccountNbr )
+//   Schwab.SetAccountNbr( acAcct.AccountNbr )
 
-  for _, lType := range []string{"TRADE","RECEIVE_AND_DELIVER","DIVIDEND_OR_INTEREST","ACH_RECEIPT","ACH_DISBURSEMENT","CASH_RECEIPT","CASH_DISBURSEMENT","ELECTRONIC_FUND","WIRE_OUT","WIRE_IN","JOURNAL","MEMORANDUM","MARGIN_CALL","MONEY_MARKET","SMA_ADJUSTMENT"} {
-    lcTrans, err := Schwab.GetTransactions( acStartDate, acEndDate, "", lType )
+//   for _, lType := range []string{"TRADE","RECEIVE_AND_DELIVER","DIVIDEND_OR_INTEREST","ACH_RECEIPT","ACH_DISBURSEMENT","CASH_RECEIPT","CASH_DISBURSEMENT","ELECTRONIC_FUND","WIRE_OUT","WIRE_IN","JOURNAL","MEMORANDUM","MARGIN_CALL","MONEY_MARKET","SMA_ADJUSTMENT"} {
+//     lcTrans, err := Schwab.GetTransactions( acStartDate, acEndDate, "", lType )
 
-    if err != nil {
-      Log.Error( "Error getting transactions for %s", lType )
-      Log.Exception( err )
-      Log.Error( "%s : %d : %s", lType, len(lcTrans), string(Schwab.HTTP.ResponseBody) )
-      continue
-    }
+//     if err != nil {
+//       Log.Error( "Error getting transactions for %s", lType )
+//       Log.Exception( err )
+//       Log.Error( "%s : %d : %s", lType, len(lcTrans), string(Schwab.HTTP.ResponseBody) )
+//       continue
+//     }
 
-    if( Log.IsDebug() ) {
-      Log.Debug( "%s : %d : %s", lType, len(lcTrans), string(Schwab.HTTP.ResponseBody) )
-    }
+//     if( Log.IsDebug() ) {
+//       Log.Debug( "%s : %d : %s", lType, len(lcTrans), string(Schwab.HTTP.ResponseBody) )
+//     }
 
-    if len(lcTrans) > 0 {
-      Log.Info( "  -- %d transactions for %s", len(lcTrans), lType )
+//     if len(lcTrans) > 0 {
+//       Log.Info( "  -- %d transactions for %s", len(lcTrans), lType )
 
-      // Save the full transaction info data structure from Schwab
-      err = SQLs.I_DailyTransactions( gsCurrDate, acAcct.AccountNbr, lType, string(Schwab.HTTP.ResponseBody) )
+//       // Save the full transaction info data structure from Schwab
+//       err = SQLs.I_DailyTransactions( gsCurrDate, acAcct.AccountNbr, lType, string(Schwab.HTTP.ResponseBody) )
 
-      if err != nil {
-        Log.Exception( err )
-      }
-    }
-  }
-}
+//       if err != nil {
+//         Log.Exception( err )
+//       }
+//     }
+//   }
+// }
 
 //-------------------------------------------------------------
 // Function: _GenerateDailyReport
@@ -318,12 +318,6 @@ func _GenerateDailyReport( acAccts []osch.AcctInfo ) {
   lsLines := make( []string, 0 )
   lsLines = append( lsLines, "End Of Day:" )
   lsText := ""
-
-  // lfWidth := 0.0
-  // lfPad := 0.0
-  // lcFM := ofont.NewFontMetrics( 16 )
-  // lfSpaceWidth := lcFM.EstimateCharWidth( ' ' )
-  // Log.Info( "SPACE Width: %f", lfSpaceWidth )
 
   for _, lAcct := range acAccts {
     lcDV, err := SQLs.S_DailyValues( gsCurrDate, lAcct.AccountNbr )
