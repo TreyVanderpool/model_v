@@ -3,19 +3,20 @@
 package main
 
 import (
-  "encoding/json"
-  "flag"
-  "fmt"
-  "sort"
-  "strings"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"sort"
+	"strings"
+	"time"
 
-  odb "github.com/TreyVanderpool/oliver-golib/db"
-  oinit "github.com/TreyVanderpool/oliver-golib/init"
-  ol "github.com/TreyVanderpool/oliver-golib/logging"
-  osch "github.com/TreyVanderpool/oliver-golib/schwab"
-  osql "github.com/TreyVanderpool/oliver-golib/sql"
-  otxt "github.com/TreyVanderpool/oliver-golib/text"
-  ou "github.com/TreyVanderpool/oliver-golib/utils"
+	odb "github.com/TreyVanderpool/oliver-golib/db"
+	oinit "github.com/TreyVanderpool/oliver-golib/init"
+	ol "github.com/TreyVanderpool/oliver-golib/logging"
+	osch "github.com/TreyVanderpool/oliver-golib/schwab"
+	osql "github.com/TreyVanderpool/oliver-golib/sql"
+	otxt "github.com/TreyVanderpool/oliver-golib/text"
+	ou "github.com/TreyVanderpool/oliver-golib/utils"
 )
 
 const (
@@ -60,7 +61,7 @@ func main() {
   }
 
   Log = oinit.Init( oinit.INIT_LOG, lsLogLevel ).(ol.ILogger)
-  Log.SetPatterns( "%M\n", "%D %-5L %T:%-20.20F:%# %M\n" )
+  Log.SetPatterns( "%M\n", "%D %-5L %T:%-20.20F:%3# %M\n" )
   Log.SetTag( TAG{ PgmName: "pursto" } )
   DB = oinit.Init( oinit.INIT_DB, Log, lsDBName ).(*odb.DB)
   defer Log.Info( "Exiting Program" )
@@ -218,8 +219,15 @@ func _GetExpirationDate( acCC osql.VCoveredCall, aiContractCount int ) ( *osch.C
   lcQuote, err := Schwab.GetSymbolQuote( acCC.Symbol )
   if err != nil { return nil, nil, Log.Exception( err ) }
 
+  lcDate := time.Now().AddDate( 0, 0, acCC.ExpireDays + 7 )
+  lcParms := make( map[string]string )
+  lcParms["contractType"] = "CALL"
+  // lcParms["strikeCount"] = "24"
+  lcParms["includeUnderlyingQuote"] = "true"
+  lcParms["toDate"] = lcDate.Format( ou.YYYY_MM_DD )
+
   // Get current option prices for this equity.
-  lcOptions, err := Schwab.GetOptionChain( acCC.Symbol, nil )
+  lcOptions, err := Schwab.GetOptionChain( acCC.Symbol, lcParms )
   if err != nil { return nil, nil, Log.Exception( err ) }
 
   lfStrikePrice := lcQuote.Quote.AskPrice * ( 1 + ( acCC.PctAboveSymbolPrice / 100 ) )
