@@ -156,6 +156,12 @@ func _ReportALiveData( acRpt *orpt.RPT, asSymbolList []string ) {
     lfSTOValue := lfCallEstimateValue * 100
     lfSTOPct := ( lfSTOValue / ( lcQuote.Quote.AskPrice * 100 ) ) * 100
 
+    if lcStrikePrice.Call.Bid == 0 {
+      lfSTOPct = 0
+      lfSTOValue = 0
+      lfCallEstimateValue = 0
+    }
+
     acRpt.PrintLine( lsSymbol,
                      lsCurrTime,
                      lcExpireDate.ExpireDate,
@@ -186,11 +192,11 @@ func _CreateReportA() ( *orpt.RPT ) {
   lcRpt.AddColumn( "Off", "%d", 3, orpt.RPT_ALGN_RIGHT )
   lcRpt.AddColumn( "Sym Ask", "%.2f", 7, orpt.RPT_ALGN_RIGHT )
   lcRpt.AddColumn( "Sym Value", "%.0f", 9, orpt.RPT_ALGN_RIGHT ).SetCommas( true )
-  lcRpt.AddColumn( "CallAsk", "%.2f", 7, orpt.RPT_ALGN_RIGHT )
-  lcRpt.AddColumn( "CallBid", "%.2f", 7, orpt.RPT_ALGN_RIGHT )
-  lcRpt.AddColumn( "CallEst", "%.2f", 7, orpt.RPT_ALGN_RIGHT )
-  lcRpt.AddColumn( "STO Amt", "%.0f", 7, orpt.RPT_ALGN_RIGHT ).SetCommas( true )
-  lcRpt.AddColumn( "STO Pct", "%.2f", 7, orpt.RPT_ALGN_RIGHT )
+  lcRpt.AddColumn( "CallAsk", "%.2f", 7, orpt.RPT_ALGN_RIGHT ).SetBWZ( true )
+  lcRpt.AddColumn( "CallBid", "%.2f", 7, orpt.RPT_ALGN_RIGHT ).SetBWZ( true )
+  lcRpt.AddColumn( "CallEst", "%.2f", 7, orpt.RPT_ALGN_RIGHT ).SetBWZ( true )
+  lcRpt.AddColumn( "STO Amt", "%.0f", 7, orpt.RPT_ALGN_RIGHT ).SetCommas( true ).SetBWZ( true )
+  lcRpt.AddColumn( "STO Pct", "%.2f", 7, orpt.RPT_ALGN_RIGHT ).SetBWZ( true )
 
   return lcRpt
 }
