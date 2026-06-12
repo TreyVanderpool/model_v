@@ -19,3 +19,11 @@ Model V Comments
   Trey & Lori: *****abc
     Covered Calls:         $254
     Account Balance:    $122,000  U  $546
+
+
+
+Option Reports
+
+A:
+Symbol TranTime ExpireDate Strike$ EDays Off Sym Ask Sym Value CallAsk CallSel CallEst STO Amt STO Pct
+------ -------- ---------- ------- ----- --- ------- --------- ------- ------- ------- ------- -------
