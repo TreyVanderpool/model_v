@@ -3,34 +3,40 @@
 package main
 
 import (
-  "flag"
-  "fmt"
-  "strings"
-  "time"
+	"encoding/json"
+	"flag"
+	"fmt"
 
-  odb "github.com/TreyVanderpool/oliver-golib/db"
-  oinit "github.com/TreyVanderpool/oliver-golib/init"
-  ol "github.com/TreyVanderpool/oliver-golib/logging"
-  osch "github.com/TreyVanderpool/oliver-golib/schwab"
-  osql "github.com/TreyVanderpool/oliver-golib/sql"
-  ou "github.com/TreyVanderpool/oliver-golib/utils"
-  otxt "github.com/TreyVanderpool/oliver-golib/text"
-  // ofont "github.com/TreyVanderpool/oliver-golib/fonts"
-  oimg "github.com/TreyVanderpool/oliver-golib/image"
+	"time"
+
+	odb "github.com/TreyVanderpool/oliver-golib/db"
+	oinit "github.com/TreyVanderpool/oliver-golib/init"
+	ol "github.com/TreyVanderpool/oliver-golib/logging"
+	osch "github.com/TreyVanderpool/oliver-golib/schwab"
+	osql "github.com/TreyVanderpool/oliver-golib/sql"
+	otxt "github.com/TreyVanderpool/oliver-golib/text"
+	ou "github.com/TreyVanderpool/oliver-golib/utils"
+
+	oimg "github.com/TreyVanderpool/oliver-golib/image"
 )
 
 const (
   MODEL_VERSION          string = "v"
+  REPORT_NAME            string = "eod"
+  TEXT_MAX_LEN           float64 = 215
 )
 
 var (
-  Log          ol.ILogger
-  DB           *odb.DB
-  Schwab       *osch.SCHWAB
-  SQLs         osql.SQLs
-  gsCurrDate   string = time.Now().Format( ou.YYYY_MM_DD )
-  gbSendText   *bool
-  gcFont       *oimg.Font
+  Log               ol.ILogger
+  DB                *odb.DB
+  Schwab            *osch.SCHWAB
+  SQLs              osql.SQLs
+  gsCurrDate        *string
+  gbSendText        *bool
+  gcFont            *oimg.Font
+  gsTestTextNbr     *string
+  gcSendText        *otxt.SendText
+  gbUpdateBalances  *bool
 )
 
 type TAG struct {
@@ -47,32 +53,49 @@ func (t TAG) GetTag() (string) {
 func main() {
   lsDBName := flag.String( "db", "stocks_test", "Database name" )
   lsLogLevel := flag.String( "lvl", "info", "Log level (debug, info, warn, error)" )
+  gsCurrDate = flag.String( "rd", time.Now().Format( ou.YYYY_MM_DD ), "Run date" )
   lsOrdersDate := flag.String( "od", time.Now().Format( ou.YYYY_MM_DD ), "Orders date to retrieve (YYYY-MM-DD)" )
   gbSendText = flag.Bool( "sendtext", false, "send text" )
+  gsTestTextNbr = flag.String( "testtext", "", "test phone number to text for testing" )
+  gbUpdateBalances = flag.Bool( "updatebalances", false, "Update daily balances")
   flag.Parse()
 
+  // Init main components, Log, DB, Schwab, SQLs...
   Log = oinit.Init( oinit.INIT_LOG, lsLogLevel ).(ol.ILogger)
   Log.SetPatterns( "%M\n", "%D %-5L %T:%-20.20F:%# %M\n" )
   Log.SetTag( TAG{ PgmName: "dlybal" } )
   DB = oinit.Init( oinit.INIT_DB, lsDBName ).(*odb.DB)
   Schwab = oinit.Init( oinit.INIT_SCHWAB, Log, DB ).(*osch.SCHWAB)
   SQLs = oinit.Init( oinit.INIT_SQLS, Log, DB ).(osql.SQLs)
+  gcSendText = oinit.Init( oinit.INIT_TEXT ).(*otxt.SendText)
 
+
+  // Use this to try and calculate text sizes so I can align the text message
+  // with left/right alignments for numbers.
   lcImg := oimg.NewImage( 1, 1, oimg.BLACK )
   lcImg.LoadFont( "sans", "GoogleSans-Regular.ttf", 14 )
   gcFont = lcImg.GetFont( "sans" )
 
-  lcAccts, err := Schwab.GetAllAccounts()
+  lcAPIAcct, err := Schwab.GetAPIAccounts()
 
   if err != nil {
     Log.Error( "Error getting accounts: %s", err )
     return
   }
 
+  Log.Info( "Starting: Run Date: %s  Update Balances: %t", *gsCurrDate, *gbUpdateBalances )
+
   // Loop through all the accounts and retrieve the Account Info which contains
   // the current and initial balances for the day. Insert the balances into the database.
-  for _, lAcct := range lcAccts {
-    _ProcessBalances( lAcct )
+  // No report generated here, just retrieves the data and writes it to the database.
+  if *gbUpdateBalances {
+    for _, lAcct := range lcAPIAcct {
+      for _, lSchwab := range lAcct.SchwabAccounts {
+        _ProcessBalances( lSchwab, lAcct.Owners )
+      }
+    }
+  } else {
+    Log.Info( "Update Balances flag not set, skipping pulling values.")
   }
 
   lcStartDate, err := time.Parse( ou.TIMESTAMPFORMAT, *lsOrdersDate + " 00:00:00" )
@@ -85,23 +108,22 @@ func main() {
   lcEndDate, _ := time.Parse( ou.TIMESTAMPFORMAT, *lsOrdersDate + " 23:59:59" )
 
   // Walk through each of the accounts and process all their orders for the day.
-  for _, lAcct := range lcAccts {
-    _ProcessOrders( lAcct, &lcStartDate, &lcEndDate )
+  for _, lAcct := range lcAPIAcct {
+    for _, lSchwab := range lAcct.SchwabAccounts {
+      _ProcessOrders( lSchwab, &lcStartDate, &lcEndDate, lAcct.Owners )
+    }
   }
 
-  // // Walk through each of the accounts and process all their transactions for the day.
-  // for _, lAcct := range lcAccts {
-  //   _ProcessTransactions( lAcct, &lcStartDate, &lcEndDate )
-  // }
-
-  _GenerateDailyReport( lcAccts )
+  for _, lAcct := range lcAPIAcct {
+    _GenerateDailyReport( lAcct )
+  }
 }
 
 //-------------------------------------------------------------
 // Function: _ProcessBalances
 //-------------------------------------------------------------
-func _ProcessBalances( acAcct osch.AcctInfo ) {
-  Log.Info( "Retrieving balances for account %s : %s", acAcct.GetMaskedNbr(), acAcct.Owners )
+func _ProcessBalances( acAcct osch.APISchwabAccount, asOwnerName string ) {
+  Log.Info( "Retrieving balances for account %s : %s", acAcct.GetMaskedNbr(), asOwnerName )
 
   Schwab.SetAccountNbr( acAcct.AccountNbr )
   lcAcctInfo, err := Schwab.GetAccountInfo()
@@ -112,7 +134,7 @@ func _ProcessBalances( acAcct osch.AcctInfo ) {
   }
 
   // Save the full account info data structure from Schwab
-  err = SQLs.I_DailyBalances( gsCurrDate, acAcct.AccountNbr, string(Schwab.HTTP.ResponseBody) )
+  err = SQLs.I_DailyBalances( *gsCurrDate, acAcct.AccountNbr, string(Schwab.HTTP.ResponseBody) )
 
   if err != nil {
     Log.Exception( err )
@@ -120,7 +142,7 @@ func _ProcessBalances( acAcct osch.AcctInfo ) {
 
   // Walk through the data structure and extract indivual values and total cash values
   lcDV := &osql.DailyValues{}
-  lcDV.TranDate = gsCurrDate
+  lcDV.TranDate = *gsCurrDate
   lcDV.AccountNbr = acAcct.AccountNbr
   lcDV.TypeText = "value"
 
@@ -200,7 +222,7 @@ func _ProcessBalances( acAcct osch.AcctInfo ) {
 //-------------------------------------------------------------
 func _ProcessPositions( acPosition osch.Position, asAcctNbr string ) {
   lcDV := &osql.DailyValues{}
-  lcDV.TranDate = gsCurrDate
+  lcDV.TranDate = *gsCurrDate
   lcDV.AccountNbr = asAcctNbr
   lcDV.TypeText = "position"
   lcDV.Symbol = acPosition.Instrument.Symbol
@@ -227,8 +249,8 @@ func _ProcessPositions( acPosition osch.Position, asAcctNbr string ) {
 //-------------------------------------------------------------
 // Function: _ProcessOrders
 //-------------------------------------------------------------
-func _ProcessOrders( acAcct osch.AcctInfo, acStartDate, acEndDate *time.Time ) {
-  Log.Info( "Retrieving orders on %s for account %s : %s", acStartDate.Format( ou.YYYY_MM_DD ), acAcct.GetMaskedNbr(), acAcct.Owners )
+func _ProcessOrders( acAcct osch.APISchwabAccount, acStartDate, acEndDate *time.Time, asOwnerName string ) {
+  Log.Info( "Retrieving orders on %s for account %s : %s", acStartDate.Format( ou.YYYY_MM_DD ), acAcct.GetMaskedNbr(), asOwnerName )
 
   Schwab.SetAccountNbr( acAcct.AccountNbr )
   lcOrders, err := Schwab.GetOrders( acStartDate, acEndDate, "" )
@@ -275,118 +297,233 @@ func _ProcessOrders( acAcct osch.AcctInfo, acStartDate, acEndDate *time.Time ) {
   }
 }
 
-// //-------------------------------------------------------------
-// // Function: _ProcessTransactions
-// //-------------------------------------------------------------
-// func _ProcessTransactions( acAcct osch.AcctInfo, acStartDate, acEndDate *time.Time ) {
-//   Log.Info( "Retrieving transactions   on %s for account %s : %s", acStartDate.Format( ou.YYYY_MM_DD ), acAcct.GetMaskedNbr(), acAcct.Owners )
-
-//   Schwab.SetAccountNbr( acAcct.AccountNbr )
-
-//   for _, lType := range []string{"TRADE","RECEIVE_AND_DELIVER","DIVIDEND_OR_INTEREST","ACH_RECEIPT","ACH_DISBURSEMENT","CASH_RECEIPT","CASH_DISBURSEMENT","ELECTRONIC_FUND","WIRE_OUT","WIRE_IN","JOURNAL","MEMORANDUM","MARGIN_CALL","MONEY_MARKET","SMA_ADJUSTMENT"} {
-//     lcTrans, err := Schwab.GetTransactions( acStartDate, acEndDate, "", lType )
-
-//     if err != nil {
-//       Log.Error( "Error getting transactions for %s", lType )
-//       Log.Exception( err )
-//       Log.Error( "%s : %d : %s", lType, len(lcTrans), string(Schwab.HTTP.ResponseBody) )
-//       continue
-//     }
-
-//     if( Log.IsDebug() ) {
-//       Log.Debug( "%s : %d : %s", lType, len(lcTrans), string(Schwab.HTTP.ResponseBody) )
-//     }
-
-//     if len(lcTrans) > 0 {
-//       Log.Info( "  -- %d transactions for %s", len(lcTrans), lType )
-
-//       // Save the full transaction info data structure from Schwab
-//       err = SQLs.I_DailyTransactions( gsCurrDate, acAcct.AccountNbr, lType, string(Schwab.HTTP.ResponseBody) )
-
-//       if err != nil {
-//         Log.Exception( err )
-//       }
-//     }
-//   }
-// }
-
 //-------------------------------------------------------------
 // Function: _GenerateDailyReport
 // https://en.wikipedia.org/wiki/List_of_emojis
 //-------------------------------------------------------------
-func _GenerateDailyReport( acAccts []osch.AcctInfo ) {
-  lsLines := make( []string, 0 )
-  lsLines = append( lsLines, "End Of Day:" )
-  lsText := ""
+func _GenerateDailyReport( acAPIAcct osch.APIAccount ) {
+  lbEOW := Schwab.IsEndOfWeek( *gsCurrDate )
+  lbEOM := Schwab.IsEndOfMonth( *gsCurrDate )
 
-  for _, lAcct := range acAccts {
-    lcDV, err := SQLs.S_DailyValues( gsCurrDate, lAcct.AccountNbr )
-    if err != nil {
-      Log.Exception( err )
-      continue
-    }
-    lsText = fmt.Sprintf( "%s: %s", lAcct.Owners, lAcct.GetMaskedNbr())
-    lsLines = append( lsLines, lsText )
-    lsTotalLine := ""
-    lsTotalLine2 := ""
-    lsCoveredLine := ""
-    lsCashLine := ""
-    for _, lDV := range lcDV {
-      switch( lDV.TypeText ) {
-        case "cov_call":
-          lfValue := (lDV.Shares * lDV.PurchasePrice) * 100
-          lsCoveredLine = gcFont.AppendRightJustified( "  Covered Call:", fmt.Sprintf( "$%.0f", lfValue ), 215 )
-          lsCoveredLine += otxt.EMOJI_GREEN_DOT
-        case "value":
-          switch( lDV.Symbol ) {
-            case "..totalcash":
-              lsCashLine = gcFont.AppendRightJustified( "  Total Cash:", ou.Commas( "$%.0f", lDV.TotalValue ), 215 )
-            case "..total":
-              lsTotalLine = gcFont.AppendRightJustified( "  Account Balance:", ou.Commas( "$%.0f", lDV.TotalValue ), 215 )
-              lsTotalLine2 = gcFont.AppendRightJustified( "  -- Todays G/L", ou.Commas( "$%.0f", lDV.TodaysGainLoss ), 215 )
-              if lDV.TodaysGainLoss < 0 {
-                lsTotalLine2 += otxt.EMOJI_RED_DOT
-              } else {
-                lsTotalLine2 += otxt.EMOJI_GREEN_DOT
-              }
-          }
+  lfWeekBeg := 0.0
+  lfWeekEnd := 0.0
+  lfMonthBeg := 0.0
+  lfMonthEnd := 0.0
+
+  lsPhoneNbrs, err := Schwab.GetAllVerionTypePhoneNbrs( MODEL_VERSION, REPORT_NAME )
+
+  for _, lPhoneNbr := range lsPhoneNbrs {
+    liAcctCount := 0
+    lfTotalValue := 0.0
+    lfTotalGL := 0.0
+
+    for _, lAcct := range acAPIAcct.SchwabAccounts {
+      Schwab.SetAccountNbr( lAcct.AccountNbr )
+      if err != nil {
+        Log.Exception( err )
+        continue
+      }
+
+      lbPhoneOnReport, _ := Schwab.IsPhoneOnNotification( MODEL_VERSION, lPhoneNbr, REPORT_NAME )
+      if ! lbPhoneOnReport { continue }
+
+      liAcctCount++
+
+      if liAcctCount == 1 {
+        gcSendText.AddLine( lPhoneNbr, "End Of Day:" )
+      } else {
+        gcSendText.AddLine( lPhoneNbr, "" )
+      }
+
+      lfValue, lfGL := _GenerateReportByPhoneNbr( lAcct, lPhoneNbr, acAPIAcct.Owners )
+      lfTotalValue += lfValue
+      lfTotalGL += lfGL
+
+      if lbEOW {
+        lfBeg, lfEnd := _GetBegEndValues( lAcct.AccountNbr, lPhoneNbr, lbEOM )
+        lfWeekBeg += lfBeg
+        lfWeekEnd += lfEnd
+      }
+      if lbEOM {
+        lfBeg, lfEnd := _GetBegEndValues( lAcct.AccountNbr, lPhoneNbr, lbEOM )
+        lfMonthBeg += lfBeg
+        lfMonthEnd += lfEnd
       }
     }
-    if lsCoveredLine > "" { lsLines = append( lsLines, lsCoveredLine ) }
-    if lsCashLine > "" { lsLines = append( lsLines, lsCashLine ) }
-    if lsTotalLine > "" { lsLines = append( lsLines, lsTotalLine ) }
-    if lsTotalLine2 > "" { lsLines = append( lsLines, lsTotalLine2 ) }
+
+    if liAcctCount > 1 {
+      gcSendText.AddLine( lPhoneNbr, "" )
+      gcSendText.AddLine( lPhoneNbr, gcFont.AppendRightJustified( "  Accumulated Value:", ou.Commas( "$%.0f", lfTotalValue ), TEXT_MAX_LEN ) )
+      lsGLLine := gcFont.AppendRightJustified( "  -- Accumulated G/L:", ou.Commas( "$%.0f", lfTotalGL ), TEXT_MAX_LEN )
+      if lfTotalGL < 0 {
+        lsGLLine += otxt.EMOJI_RED_DOT + " "
+      } else {
+        lsGLLine += otxt.EMOJI_GREEN_DOT + " "
+      }
+      gcSendText.AddLine( lPhoneNbr, lsGLLine )
+    }
+
+    if lfWeekBeg != 0 {
+      _AddOtherValues( lPhoneNbr, "Week", lfWeekBeg, lfWeekEnd)
+    }
+
+    if lfMonthBeg != 0 {
+      _AddOtherValues( lPhoneNbr, "Month", lfMonthBeg, lfMonthEnd)
+    }
   }
 
-  _SendText( "eod", strings.Join( lsLines, "\n" ) )
+  _SendText()
 
 }
 
-//--------------------------------------------------------------
-// Function: _SendText
-//--------------------------------------------------------------
-func _SendText( asTextName, asTextMsg string ) {
+//-------------------------------------------------------------
+// Function: _GenerateReportByPhoneNbr
+// https://en.wikipedia.org/wiki/List_of_emojis
+//-------------------------------------------------------------
+func _GenerateReportByPhoneNbr( acAPIAcct osch.APISchwabAccount, asPhoneNbr, asOwnerName string ) ( rTotal, rGL float64 ) {
+  lsText := ""
 
-  // We assume 'Schwab' object has already been initialized and
-  // the account number is previously set.
-  lsPhoneList, err := Schwab.GetVersionPhoneNumbers( MODEL_VERSION, asTextName )
+  lcDV, err := SQLs.S_DailyValues( *gsCurrDate, acAPIAcct.AccountNbr )
 
   if err != nil {
     Log.Exception( err )
     return
   }
 
-  if len( lsPhoneList ) == 0 {
-    Log.Error( "Unable to send text message, no phone numbers found for '%s:%s'", MODEL_VERSION, asTextName )
-    Log.Error( strings.Replace( asTextMsg, "\n", "\\n", -1 ) )
-    return
+  lsText = fmt.Sprintf( "%s: %s", asOwnerName, acAPIAcct.GetMaskedNbr() )
+  gcSendText.AddLine( asPhoneNbr, lsText )
+  lsTotalLine := ""
+  lsTotalLine2 := ""
+  lsCoveredLine := ""
+  lsCashLine := ""
+
+  for _, lDV := range lcDV {
+    switch( lDV.TypeText ) {
+      case "cov_call":
+        lfValue := (lDV.Shares * lDV.PurchasePrice) * 100
+        lsCoveredLine = gcFont.AppendRightJustified( "  Covered Call:", fmt.Sprintf( "$%.0f", lfValue ), TEXT_MAX_LEN )
+        lsCoveredLine += otxt.EMOJI_SMILE_WITH_TEETH
+      case "value":
+        switch( lDV.Symbol ) {
+          case "..totalcash":
+            lsCashLine = gcFont.AppendRightJustified( "  Total Cash:", ou.Commas( "$%.0f", lDV.TotalValue ), TEXT_MAX_LEN )
+          case "..total":
+            lsTotalLine = gcFont.AppendRightJustified( "  Account Balance:", ou.Commas( "$%.0f", lDV.TotalValue ), TEXT_MAX_LEN )
+            lsTotalLine2 = gcFont.AppendRightJustified( "  -- Todays G/L", ou.Commas( "$%.0f", lDV.TodaysGainLoss ), TEXT_MAX_LEN )
+            if lDV.TodaysGainLoss < 0 {
+              lsTotalLine2 += otxt.EMOJI_RED_DOT + " "
+            } else {
+              lsTotalLine2 += otxt.EMOJI_GREEN_DOT + " "
+            }
+            rTotal = lDV.TotalValue
+            rGL = lDV.TodaysGainLoss
+        }
+    }
   }
 
-  lcText := oinit.Init( oinit.INIT_TEXT ).(*otxt.SendText)
-  lcText.ClearPhoneList()
-  lcText.AddPhoneList( lsPhoneList )
+  if lsCoveredLine > "" { gcSendText.AddLine( asPhoneNbr, lsCoveredLine ) }
+  if lsCashLine > "" { gcSendText.AddLine( asPhoneNbr, lsCashLine ) }
+  if lsTotalLine > "" { gcSendText.AddLine( asPhoneNbr, lsTotalLine ) }
+  if lsTotalLine2 > "" { gcSendText.AddLine( asPhoneNbr, lsTotalLine2 ) }
 
-  if *gbSendText {
-    lcText.SendMsg( asTextMsg )
+  return rTotal, rGL
+}
+
+//--------------------------------------------------------------
+// Function: _GetBegEndValues
+//--------------------------------------------------------------
+func _GetBegEndValues( asAcctNbr, asPhoneNbr string, abEOM bool ) ( float64, float64 ) {
+  lcSDate := time.Time{}
+
+  if abEOM {
+    lcSDate, _ = time.Parse( ou.YYYY_MM_DD, (*gsCurrDate)[0:8] + "01" )
+  } else {
+    lcSDate, _ = time.Parse( ou.YYYY_MM_DD, *gsCurrDate )
+    lcSDate = lcSDate.AddDate( 0, 0, -5 )
+  }
+
+  lsBegData := ""
+
+  for {
+    lsDate := lcSDate.Format( ou.YYYY_MM_DD )
+    if lsDate > *gsCurrDate {
+      return 0, 0
+    }
+    lsInfo, err := SQLs.S_DailyBalances( lsDate, asAcctNbr )
+    if err == nil && lsInfo > "" {
+      lsBegData = lsInfo
+      break
+    }
+    lcSDate = lcSDate.AddDate( 0, 0, 1 )
+  }
+
+  if lsBegData == "" { return 0, 0 }
+
+  lsEndData, err := SQLs.S_DailyBalances( *gsCurrDate, asAcctNbr )
+
+  if err != nil {
+    Log.Exception( err )
+    return 0, 0
+  }
+
+  lcBegAcctInfo := osch.SecuritiesHeader{}
+  err = json.Unmarshal( []byte(lsBegData), &lcBegAcctInfo )
+
+  if err != nil {
+    Log.Exception( err )
+    return 0, 0
+  }
+
+  lcEndAcctInfo := osch.SecuritiesHeader{}
+   err = json.Unmarshal( []byte(lsEndData), &lcEndAcctInfo )
+
+  if err != nil {
+    Log.Exception( err )
+    return 0, 0
+  }
+
+  lfBegBalance := lcBegAcctInfo.Account.InitBalance.LiquidationValue
+  lfEndBalance := lcEndAcctInfo.Account.CurrBalance.LiquidationValue
+  return lfBegBalance, lfEndBalance
+}
+
+//--------------------------------------------------------------
+// Function: _SendText
+//--------------------------------------------------------------
+func _AddOtherValues( asPhoneNbr, asEndOfText string, afBegValue, afEndValue float64 ) {
+  lfGL := afEndValue - afBegValue
+  gcSendText.AddLine( asPhoneNbr, "" )
+  gcSendText.AddLine( asPhoneNbr, fmt.Sprintf( "End Of %s:", asEndOfText ) )
+  // gcSendText.AddLine( asPhoneNbr, gcFont.AppendRightJustified( "  Total Value:", ou.Commas( "$%.0f", afEndValue ), TEXT_MAX_LEN ) )
+  lsGLLine := gcFont.AppendRightJustified( fmt.Sprintf( "  -- %sly G/L:", asEndOfText ), ou.Commas( "$%.0f", lfGL ), TEXT_MAX_LEN )
+
+  if lfGL < 0 {
+    lsGLLine += otxt.EMOJI_RED_DOT + " "
+  } else {
+    lsGLLine += otxt.EMOJI_GREEN_DOT + " "
+  }
+
+  gcSendText.AddLine( asPhoneNbr, lsGLLine )
+}
+
+//--------------------------------------------------------------
+// Function: _SendText
+//--------------------------------------------------------------
+func _SendText() {
+  // var err           error
+  var lsPhoneList   []string
+
+  gcSendText.ClearPhoneList()
+
+  if *gsTestTextNbr > "" {
+    lsPhoneList = append( lsPhoneList, *gsTestTextNbr )
+    gcSendText.AddPhoneList( lsPhoneList )
+  }
+
+  if *gbSendText || *gsTestTextNbr > "" {
+    err := gcSendText.SendSavedMessages()
+    if err != nil {
+      Log.Exception( err )
+    }
   }
 }
