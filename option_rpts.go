@@ -4,6 +4,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -37,6 +38,7 @@ var (
   gfStrikePctOffset       *float64
   giExpireDays            *int
   gsSymbolRange           *string
+  gbExcludeZeroBids       *bool
 )
 
 var (
@@ -65,6 +67,7 @@ func main() {
   gfStrikePctOffset = flag.Float64( "spo", 0, "strike offset by percent from current equity price" )
   giExpireDays = flag.Int( "edays", 1, "Number of days expire date is from specified date" )
   gsSymbolRange = flag.String( "range", "0,999999999", "Equity ask price range, comma separted values" )
+  gbExcludeZeroBids = flag.Bool( "excludezerobid", false, "Exclude zero dollar CALL bids" )
   flag.Parse()
 
   Log = oinit.Init( oinit.INIT_LOG, lsLogLevel ).(ol.ILogger)
@@ -103,6 +106,7 @@ func _PutinSaveList( asList []string ) {
   gcRptList = olst.NewSafeList[string]()
 
   for i := range asList {
+    asList[i] = strings.ToUpper( asList[i] )
     gcRptList.PushBack( asList[i] )
   }
 }
@@ -131,6 +135,8 @@ func _ReportALiveData( acRpt *orpt.RPT, asSymbolList []string ) {
 
   lfLowRange, _ := strconv.ParseFloat( lsRange[0], 64 )
   lfHighRange, _ := strconv.ParseFloat( lsRange[1], 64 )
+
+  fmt.Printf( "RA: Report: Range: %.0f/%.0f  ExpireDate: %d : %s\n", lfLowRange, lfHighRange, *giExpireDays, lsExpireDate )
   
   for {
     lcElement := gcRptList.RemoveFront()
@@ -148,7 +154,7 @@ func _ReportALiveData( acRpt *orpt.RPT, asSymbolList []string ) {
       continue
     }
 
-    lcExpireDate, lcStrikePrice := lcChain.FindStrikePriceAbove( lsExpireDate, lcQuote.Quote.AskPrice )
+    lcExpireDate, lcStrikePrice := lcChain.FindStrikePriceAbove( lsSymbol, lsExpireDate, lcQuote.Quote.AskPrice )
 
     if lcExpireDate == nil || lcStrikePrice == nil { continue }
 
@@ -157,6 +163,7 @@ func _ReportALiveData( acRpt *orpt.RPT, asSymbolList []string ) {
     lfSTOPct := ( lfSTOValue / ( lcQuote.Quote.AskPrice * 100 ) ) * 100
 
     if lcStrikePrice.Call.Bid == 0 {
+      if *gbExcludeZeroBids { continue }
       lfSTOPct = 0
       lfSTOValue = 0
       lfCallEstimateValue = 0
