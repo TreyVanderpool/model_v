@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-  "sync"
+	"sync"
 
 	"time"
 
@@ -23,216 +23,228 @@ import (
 )
 
 const (
-  MODEL_VERSION          string = "v"
-  THREAD_COUNT           int = 5
+	MODEL_VERSION string = "v"
+	THREAD_COUNT  int    = 5
 )
 
 var (
-  Log                     ol.ILogger
-  Schwab                  *osch.SCHWAB
-  SQLs                    osql.SQLs
-  DB                      *odb.DB
-  gfEquityLowPrice      	*float64
-  gfEquityHighPrice       *float64
-  gsRunDate               *string
-  gcRptList               *olst.SafeList[string]
-  giStrikeOffset          *int
-  gfStrikePctOffset       *float64
-  giExpireDays            *int
-  gsSymbolRange           *string
-  gbExcludeZeroBids       *bool
-  gcPrintLock             sync.Mutex
-  gbRptAHeadingsPrinted   bool = false
+	Log                   ol.ILogger
+	Schwab                *osch.SCHWAB
+	SQLs                  osql.SQLs
+	DB                    *odb.DB
+	gfEquityLowPrice      *float64
+	gfEquityHighPrice     *float64
+	gsRunDate             *string
+	gcRptList             *olst.SafeList[string]
+	giStrikeOffset        *int
+	gfStrikePctOffset     *float64
+	giExpireDays          *int
+	gsSymbolRange         *string
+	gbExcludeZeroBids     *bool
+	gcPrintLock           sync.Mutex
+	gbRptAHeadingsPrinted bool = false
 )
 
 var (
-//   gcAcctMap           map[string]*osch.Account = make( map[string]*osch.Account )
+// gcAcctMap           map[string]*osch.Account = make( map[string]*osch.Account )
 )
 
 type TAG struct {
-  ol.ILogTag
-  PgmName               string
-}
-func (t TAG) GetTag() (string) {
-  return t.PgmName
+	ol.ILogTag
+	PgmName string
 }
 
-//------------------------------------------------------------------------------
+func (t TAG) GetTag() string {
+	return t.PgmName
+}
+
+// ------------------------------------------------------------------------------
 // Function: main
-//------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------
 func main() {
-  lsDBName := flag.String( "db", "stocks_test", "database name" )
-  lsLogLevel := flag.String( "lvl", "info", "Log level (debug, info, warn, error)" )
-  gfEquityLowPrice = flag.Float64( "elp", 0.0, "Equity low price" )
-  gfEquityHighPrice = flag.Float64( "ehp", 0.0, "Equity high price" )
-  gsRunDate = flag.String( "rd", time.Now().Format( ou.YYYY_MM_DD ), "Run date" )
-  lsSymbols := flag.String( "s", "mktcap_1B", "Symbols list, can be symbol or symbols_to_process name" )
-  giStrikeOffset = flag.Int( "so", 1, "strike offset from current equity price" )
-  gfStrikePctOffset = flag.Float64( "spo", 0, "strike offset by percent from current equity price" )
-  giExpireDays = flag.Int( "edays", 1, "Number of days expire date is from specified date" )
-  gsSymbolRange = flag.String( "range", "0,999999999", "Equity ask price range, comma separted values" )
-  gbExcludeZeroBids = flag.Bool( "excludezerobid", false, "Exclude zero dollar CALL bids" )
-  flag.Parse()
+	lsDBName := flag.String( "db", "stocks_test", "database name" )
+	lsLogLevel := flag.String( "lvl", "info", "Log level (debug, info, warn, error)" )
+	gfEquityLowPrice = flag.Float64( "elp", 0.0, "Equity low price" )
+	gfEquityHighPrice = flag.Float64( "ehp", 0.0, "Equity high price" )
+	gsRunDate = flag.String( "rd", time.Now().Format(ou.YYYY_MM_DD), "Run date" )
+	lsSymbols := flag.String( "s", "mktcap_1B", "Symbols list, can be symbol or symbols_to_process name" )
+	giStrikeOffset = flag.Int( "so", 1, "strike offset from current equity price" )
+	gfStrikePctOffset = flag.Float64( "spo", 0, "strike offset by percent from current equity price" )
+	giExpireDays = flag.Int( "edays", 1, "Number of days expire date is from specified date" )
+	gsSymbolRange = flag.String( "range", "0,999999999", "Equity ask price range, comma separted values" )
+	gbExcludeZeroBids = flag.Bool( "excludezerobid", false, "Exclude zero dollar CALL bids" )
+	liThreads := flag.Int( "threads", THREAD_COUNT, "Thread count to use" )
+	flag.Parse()
 
-  Log = oinit.Init( oinit.INIT_LOG, lsLogLevel ).(ol.ILogger)
-  Log.SetPatterns( "%M\n", "%D %-5L %T:%-20.20F:%3# %M\n" )
-  Log.SetTag( TAG{ PgmName: "optrpt" } )
-  DB = oinit.Init( oinit.INIT_DB, Log, lsDBName ).(*odb.DB)
-  defer Log.Info( "Exiting Program" )
+	Log = oinit.Init( oinit.INIT_LOG, lsLogLevel ).(ol.ILogger)
+	Log.SetPatterns( "%M\n", "%D %-5L %T:%-20.20F:%3# %M\n" )
+	Log.SetTag( TAG{ PgmName: "optrpt" } )
+	DB = oinit.Init( oinit.INIT_DB, Log, lsDBName ).(*odb.DB)
+	defer Log.Info( "Exiting Program" )
 
-  Schwab = oinit.Init( oinit.INIT_SCHWAB, Log, DB ).(*osch.SCHWAB)
-  SQLs = oinit.Init( oinit.INIT_SQLS, Log, DB ).(osql.SQLs)
+	Schwab = oinit.Init( oinit.INIT_SCHWAB, Log, DB ).(*osch.SCHWAB)
+	SQLs = oinit.Init( oinit.INIT_SQLS, Log, DB ).(osql.SQLs)
 
-  lsSymbolsList := make( []string, 0 )
+	lsSymbolsList := make( []string, 0 )
 
-  if *lsSymbols == "" {
-    lsSymbolsList, _ = SQLs.S_OpenCloseAllSymbols()
-  } else {
-    lsSymbolsList, _ = SQLs.X_BuildSymbolsList( *lsSymbols )
-  }
+	if *lsSymbols == "" {
+		lsSymbolsList, _ = SQLs.S_OpenCloseAllSymbols()
+	} else {
+		lsSymbolsList, _ = SQLs.X_BuildSymbolsList( *lsSymbols )
+	}
 
-  lsSymbolsList, _ = SQLs.S_ExcludeOptionList( lsSymbolsList )
+	lsSymbolsList, _ = SQLs.S_ExcludeNoOptionList( lsSymbolsList )
 
-  Log.Info( "Starting: Looking at %d symbols", len(lsSymbolsList) )
+	Log.Info( "Starting: Looking at %d symbols", len(lsSymbolsList) )
 
-  _PutinSaveList( lsSymbolsList )
+	_PutinSaveList(lsSymbolsList)
 
-  if *gsRunDate == time.Now().Format( ou.YYYY_MM_DD ) {
-    lcRpt := _CreateReportA()
-    lcQuotes, err := Schwab.GetSymbolQuotes( lsSymbolsList, "" )
-    if err != nil {
-      Log.Exception( err )
-      return
-    }
-    lcWaitGroup := &sync.WaitGroup{}
-    lcWaitGroup.Add( THREAD_COUNT )
-    for range THREAD_COUNT {
-      go _ReportALiveData( lcRpt, lcQuotes, lcWaitGroup )
-    }
-    lcWaitGroup.Wait()
-  }
+	if *gsRunDate == time.Now().Format( ou.YYYY_MM_DD ) {
+		lcRpt := _CreateReportA()
+		lcQuotes, err := Schwab.GetSymbolQuotes( lsSymbolsList, "" )
+		if err != nil {
+			Log.Exception( err )
+			return
+		}
+		lcWaitGroup := &sync.WaitGroup{}
+		lcWaitGroup.Add( *liThreads )
+		for range *liThreads {
+			go _ReportALiveData( lcRpt, lcQuotes, lcWaitGroup )
+		}
+		lcWaitGroup.Wait()
+	}
 }
 
-//------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------
 // Function: _PutinSaveList
-//------------------------------------------------------------------------------
-func _PutinSaveList( asList []string ) {
-  gcRptList = olst.NewSafeList[string]()
+// ------------------------------------------------------------------------------
+func _PutinSaveList(asList []string) {
+	gcRptList = olst.NewSafeList[string]()
 
-  for i := range asList {
-    asList[i] = strings.ToUpper( asList[i] )
-    gcRptList.PushBack( asList[i] )
-  }
+	for i := range asList {
+		asList[i] = strings.ToUpper(asList[i])
+		gcRptList.PushBack(asList[i])
+	}
 }
 
-//------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------
 // Function: _ReportALiveData
-//------------------------------------------------------------------------------
-func _ReportALiveData( acRpt *orpt.RPT, acQuotes map[string]osch.Quote, acWaitGroup *sync.WaitGroup ) {
-  lcDate := time.Now().AddDate( 0, 0, *giExpireDays )
-  lsExpireDate := lcDate.Format( ou.YYYY_MM_DD )
-  lcOptionParms := make( map[string]string )
-  lcOptionParms["toDate"] = lsExpireDate
-  lsRange := strings.Split( *gsSymbolRange, "," )
-  lsCurrTime := time.Now().Format( ou.HH_MM_SS )
-  defer acWaitGroup.Done()
+// ------------------------------------------------------------------------------
+func _ReportALiveData(acRpt *orpt.RPT, acQuotes map[string]osch.Quote, acWaitGroup *sync.WaitGroup) {
+	lcDate := time.Now().AddDate(0, 0, *giExpireDays)
+	lsExpireDate := lcDate.Format(ou.YYYY_MM_DD)
+	lcOptionParms := make(map[string]string)
+	lcOptionParms["toDate"] = lsExpireDate
+	lsRange := strings.Split(*gsSymbolRange, ",")
+	lsCurrTime := time.Now().Format(ou.HH_MM_SS)
+	defer acWaitGroup.Done()
 
-  if len(lsRange) != 2 {
-    panic( "Symbol range value '%s' must be 2 values separated by comma" )
-  }
+	if len(lsRange) != 2 {
+		panic("Symbol range value '%s' must be 2 values separated by comma")
+	}
 
-  lfLowRange, _ := strconv.ParseFloat( lsRange[0], 64 )
-  lfHighRange, _ := strconv.ParseFloat( lsRange[1], 64 )
+	lfLowRange, _ := strconv.ParseFloat(lsRange[0], 64)
+	lfHighRange, _ := strconv.ParseFloat(lsRange[1], 64)
 
-  gcPrintLock.Lock()
-  if ! gbRptAHeadingsPrinted {
-    fmt.Printf( "RA: Report: Range: %.0f/%.0f  ExpireDate: %d : %s  Strike Off: %d  Pct: %.2f\n",
-                lfLowRange, lfHighRange, *giExpireDays, lsExpireDate, *giStrikeOffset, *gfStrikePctOffset )
-    gbRptAHeadingsPrinted = true
-  }
-  gcPrintLock.Unlock()
+	gcPrintLock.Lock()
+	if !gbRptAHeadingsPrinted {
+		fmt.Printf("RA: Report: Range: %.0f/%.0f  ExpireDate: %d : %s  Strike Off: %d  Pct: %.2f\n",
+			lfLowRange, lfHighRange, *giExpireDays, lsExpireDate, *giStrikeOffset, *gfStrikePctOffset)
+		gbRptAHeadingsPrinted = true
+	}
+	gcPrintLock.Unlock()
 
-  liCount := 0
-  
-  for {
-    lcElement := gcRptList.RemoveFront()
-    if lcElement == nil { break }
+	liCount := 0
 
-    liCount++
-    lsSymbol := lcElement.Value.(string)
-    lcQuote, lbFnd := acQuotes[lsSymbol]
-    if ! lbFnd { continue }
+	for {
+		lcElement := gcRptList.RemoveFront()
+		if lcElement == nil {
+			break
+		}
 
-    if lcQuote.Quote.AskPrice < lfLowRange || lcQuote.Quote.AskPrice > lfHighRange { continue }
+		liCount++
+		lsSymbol := lcElement.Value.(string)
+		lcQuote, lbFnd := acQuotes[lsSymbol]
+		if !lbFnd {
+			continue
+		}
 
-    lcChain, err := Schwab.GetOptionChain( lsSymbol, lcOptionParms )
-    if err != nil {
-      acRpt.PrintLine( lsSymbol, err )
-      continue
-    }
+		if lcQuote.Quote.AskPrice < lfLowRange || lcQuote.Quote.AskPrice > lfHighRange {
+			continue
+		}
 
-    var lcExpireDate    *osch.CStrike
-    var lcStrikePrice   *osch.CPrice
+		lcChain, err := Schwab.GetOptionChain(lsSymbol, lcOptionParms)
+		if err != nil {
+			acRpt.PrintLine(lsSymbol, err)
+			continue
+		}
 
-    if *gfStrikePctOffset != 0 {
-      lfPrice := lcQuote.Quote.AskPrice * ( 1 + ( *gfStrikePctOffset / 100 ) )
-      lcExpireDate, lcStrikePrice = lcChain.FindStrikePriceAbove( lsSymbol, lsExpireDate, lfPrice )
-    } else {
-      lcExpireDate, lcStrikePrice = lcChain.FindStrikePriceOffset( lsSymbol, lsExpireDate, *giStrikeOffset )
-    }
+		var lcExpireDate *osch.CStrike
+		var lcStrikePrice *osch.CPrice
 
-    if lcExpireDate == nil || lcStrikePrice == nil { continue }
+		if *gfStrikePctOffset != 0 {
+			lfPrice := lcQuote.Quote.AskPrice * (1 + (*gfStrikePctOffset / 100))
+			lcExpireDate, lcStrikePrice = lcChain.FindStrikePriceAbove(lsSymbol, lsExpireDate, lfPrice)
+		} else {
+			lcExpireDate, lcStrikePrice = lcChain.FindStrikePriceOffset(lsSymbol, lsExpireDate, *giStrikeOffset)
+		}
 
-    lfCallEstimateValue := ( lcStrikePrice.Call.Ask + lcStrikePrice.Call.Bid ) / 2
-    lfSTOValue := lfCallEstimateValue * 100
-    lfSTOPct := ( lfSTOValue / ( lcQuote.Quote.AskPrice * 100 ) ) * 100
+		if lcExpireDate == nil || lcStrikePrice == nil {
+			continue
+		}
 
-    if lcStrikePrice.Call.Bid == 0 {
-      if *gbExcludeZeroBids { continue }
-      lfSTOPct = 0
-      lfSTOValue = 0
-      lfCallEstimateValue = 0
-    }
+		lfCallEstimateValue := (lcStrikePrice.Call.Ask + lcStrikePrice.Call.Bid) / 2
+		lfSTOValue := lfCallEstimateValue * 100
+		lfSTOPct := (lfSTOValue / (lcQuote.Quote.AskPrice * 100)) * 100
 
-    gcPrintLock.Lock()
-    acRpt.PrintLine( lsSymbol,
-                     lsCurrTime,
-                     lcExpireDate.ExpireDate,
-                     lcStrikePrice.StrikePrice,
-                     lcExpireDate.ExpireDays,
-                     lcStrikePrice.OffsetFromSymbol,
-                     lcQuote.Quote.AskPrice,
-                     ou.PctChg( lcQuote.Quote.AskPrice, lcStrikePrice.StrikePrice ),
-                     lcQuote.Quote.AskPrice * 100,
-                     lcStrikePrice.Call.Ask,
-                     lcStrikePrice.Call.Bid,
-                     lfCallEstimateValue,
-                     lfSTOValue,
-                     lfSTOPct )
-    gcPrintLock.Unlock()
-  }
+		if lcStrikePrice.Call.Bid == 0 {
+			if *gbExcludeZeroBids {
+				continue
+			}
+			lfSTOPct = 0
+			lfSTOValue = 0
+			lfCallEstimateValue = 0
+		}
+
+		gcPrintLock.Lock()
+		acRpt.PrintLine(lsSymbol,
+			lsCurrTime,
+			lcExpireDate.ExpireDate,
+			lcStrikePrice.StrikePrice,
+			lcExpireDate.ExpireDays,
+			lcStrikePrice.OffsetFromSymbol,
+			lcQuote.Quote.AskPrice,
+			ou.PctChg(lcQuote.Quote.AskPrice, lcStrikePrice.StrikePrice),
+			lcQuote.Quote.AskPrice*100,
+			lcStrikePrice.Call.Ask,
+			lcStrikePrice.Call.Bid,
+			lfCallEstimateValue,
+			lfSTOValue,
+			lfSTOPct)
+		gcPrintLock.Unlock()
+	}
 }
 
-//------------------------------------------------------------------------------
+// ------------------------------------------------------------------------------
 // Function: _CreateReportA
-//------------------------------------------------------------------------------
-func _CreateReportA() ( *orpt.RPT ) {
-  lcRpt := orpt.NewRPT()
-  lcRpt.SetReportName( "RA:" )
-  lcRpt.AddColumn( "Symbol", "%s", 6, orpt.RPT_ALGN_LEFT )
-  lcRpt.AddColumn( "TranTime", "%s", 8, orpt.RPT_ALGN_LEFT )
-  lcRpt.AddColumn( "ExpireDate", "%s", 10, orpt.RPT_ALGN_LEFT )
-  lcRpt.AddColumn( "Strike$", "%.1f", 7, orpt.RPT_ALGN_RIGHT )
-  lcRpt.AddColumn( "EDays", "%d", 5, orpt.RPT_ALGN_RIGHT )
-  lcRpt.AddColumn( "Off", "%d", 3, orpt.RPT_ALGN_RIGHT )
-  lcRpt.AddColumn( "Sym Ask", "%.2f", 7, orpt.RPT_ALGN_RIGHT )
-  lcRpt.AddColumn( "SymAsk%%", "%.2f%%", 7, orpt.RPT_ALGN_RIGHT )
-  lcRpt.AddColumn( "Sym Value", "%.0f", 9, orpt.RPT_ALGN_RIGHT ).SetCommas( true )
-  lcRpt.AddColumn( "CallAsk", "%.2f", 7, orpt.RPT_ALGN_RIGHT ).SetBWZ( true )
-  lcRpt.AddColumn( "CallBid", "%.2f", 7, orpt.RPT_ALGN_RIGHT ).SetBWZ( true )
-  lcRpt.AddColumn( "CallEst", "%.2f", 7, orpt.RPT_ALGN_RIGHT ).SetBWZ( true )
-  lcRpt.AddColumn( "STO Amt", "%.0f", 7, orpt.RPT_ALGN_RIGHT ).SetCommas( true ).SetBWZ( true )
-  lcRpt.AddColumn( "STO Pct", "%.2f", 7, orpt.RPT_ALGN_RIGHT ).SetBWZ( true )
+// ------------------------------------------------------------------------------
+func _CreateReportA() *orpt.RPT {
+	lcRpt := orpt.NewRPT()
+	lcRpt.SetReportName("RA:")
+	lcRpt.AddColumn("Symbol", "%s", 6, orpt.RPT_ALGN_LEFT)
+	lcRpt.AddColumn("TranTime", "%s", 8, orpt.RPT_ALGN_LEFT)
+	lcRpt.AddColumn("ExpireDate", "%s", 10, orpt.RPT_ALGN_LEFT)
+	lcRpt.AddColumn("Strike$", "%.1f", 7, orpt.RPT_ALGN_RIGHT)
+	lcRpt.AddColumn("EDays", "%d", 5, orpt.RPT_ALGN_RIGHT)
+	lcRpt.AddColumn("Off", "%d", 3, orpt.RPT_ALGN_RIGHT)
+	lcRpt.AddColumn("Sym Ask", "%.2f", 7, orpt.RPT_ALGN_RIGHT)
+	lcRpt.AddColumn("SymAsk%%", "%.2f%%", 7, orpt.RPT_ALGN_RIGHT)
+	lcRpt.AddColumn("Sym Value", "%.0f", 9, orpt.RPT_ALGN_RIGHT).SetCommas(true)
+	lcRpt.AddColumn("CallAsk", "%.2f", 7, orpt.RPT_ALGN_RIGHT).SetBWZ(true)
+	lcRpt.AddColumn("CallBid", "%.2f", 7, orpt.RPT_ALGN_RIGHT).SetBWZ(true)
+	lcRpt.AddColumn("CallEst", "%.2f", 7, orpt.RPT_ALGN_RIGHT).SetBWZ(true)
+	lcRpt.AddColumn("STO Amt", "%.0f", 7, orpt.RPT_ALGN_RIGHT).SetCommas(true).SetBWZ(true)
+	lcRpt.AddColumn("STO Pct", "%.2f%%", 7, orpt.RPT_ALGN_RIGHT).SetBWZ(true)
 
-  return lcRpt
+	return lcRpt
 }

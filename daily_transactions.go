@@ -25,8 +25,6 @@ var (
   Schwab              *osch.SCHWAB
   SQLs                osql.SQLs
   gsCurrDate          string = time.Now().Format( ou.YYYY_MM_DD )
-  gbSendText          *bool
-  // gcFont       *oimg.Font
   TRANSACTION_TYPES   []string = []string{"TRADE","RECEIVE_AND_DELIVER","DIVIDEND_OR_INTEREST","ACH_RECEIPT","ACH_DISBURSEMENT","CASH_RECEIPT","CASH_DISBURSEMENT","ELECTRONIC_FUND","WIRE_OUT","WIRE_IN","JOURNAL","MEMORANDUM","MARGIN_CALL","MONEY_MARKET","SMA_ADJUSTMENT"}
 )
 
@@ -94,7 +92,7 @@ func _ProcessTransactions( acAcct osch.AcctInfo, acStartDate, acEndDate *time.Ti
   }
 
   for _, lType := range TRANSACTION_TYPES {
-    lcTrans, err := _GetTransactionsByDate( acAcct, acStartDate, acEndDate, lType )
+    lcTrans, err := _GetTransactionsByDate( acStartDate, acEndDate, lType )
 
     if err != nil {
       Log.Error( "Error getting transactions for %s", lType )
@@ -123,7 +121,7 @@ func _ProcessTransactions( acAcct osch.AcctInfo, acStartDate, acEndDate *time.Ti
 //-------------------------------------------------------------
 // Function: _ProcessTransactions
 //-------------------------------------------------------------
-func _GetTransactionsByDate( acAcct osch.AcctInfo, acStartDate, acEndDate *time.Time, asType string ) ( map[string][]osch.Activity, error ) {
+func _GetTransactionsByDate( acStartDate, acEndDate *time.Time, asType string ) ( map[string][]osch.Activity, error ) {
   lcMap := make( map[string][]osch.Activity )
 
   lcTrans, err := Schwab.GetTransactions( acStartDate, acEndDate, "", asType )
@@ -142,7 +140,18 @@ func _GetTransactionsByDate( acAcct osch.AcctInfo, acStartDate, acEndDate *time.
   if len(lcTrans) == 0 { return lcMap, nil }
 
   for i, lTran := range lcTrans {
-    lsDate := lTran.Time[0:10]
+    if lTran.Type == "TRADE" && lTran.Description == "System transfer" { continue }
+    // lsDate := lTran.Time[0:10]
+    lsDate := ""
+    if lTran.SettlementDate > "" {
+      lsDate = lTran.SettlementDate[0:10]
+    } else if lTran.TradeDate > "" {
+      lsDate = lTran.TradeDate[0:10]
+    } else {
+      Log.Error( "Unable to find Settlement or Trade date..." )
+      Log.Error( "%+v", lTran )
+      continue
+    }
     lcAcct, lbFnd := lcMap[lsDate]
 
     if ! lbFnd {

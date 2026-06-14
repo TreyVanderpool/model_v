@@ -353,7 +353,7 @@ func _GenerateDailyReport( acAPIAcct osch.APIAccount ) {
 
     if liAcctCount > 1 {
       gcSendText.AddLine( lPhoneNbr, "" )
-      gcSendText.AddLine( lPhoneNbr, gcFont.AppendRightJustified( "  Accumulated Value:", ou.Commas( "$%.0f", lfTotalValue ), TEXT_MAX_LEN ) )
+      gcSendText.AddLine( lPhoneNbr, gcFont.AppendRightJustified( "Accumulated Value:", ou.Commas( "$%.0f", lfTotalValue ), TEXT_MAX_LEN ) )
       lsGLLine := gcFont.AppendRightJustified( "  -- Accumulated G/L:", ou.Commas( "$%.0f", lfTotalGL ), TEXT_MAX_LEN )
       if lfTotalGL < 0 {
         lsGLLine += otxt.EMOJI_RED_DOT + " "
