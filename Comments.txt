@@ -6,10 +6,11 @@ Model V Comments
   - If multiple stocks in play calculate percentage across all stocks
   - Purchase any stocks as needed.
 
-- purchase_covered_calls.go
+- purchase_sto.go
   - Look for any lots of 100 shares to purchase X number of coverd calls - SELL_TO_OPEN
   - Calculate the expiration date to purchase, looking at initially 4 days out.
   - Execute orders
+
 
 - Daily Text Message
   End Of Day:
@@ -19,11 +20,32 @@ Model V Comments
   Trey & Lori: *****abc
     Covered Calls:         $254
     Account Balance:    $122,000  U  $546
+Accumulated Total:
+  -- Total G/L             $400
 
+
+Criteria Selection: These are all considered AND conditions when multiples are provided
+  - day: .value, {value,value}, {value-value}             {mon,tue,wed,thu,fri}   day-of-week for expiration date
+  - days: .value, {value,value}, {value-value}            {0,9999}                number of days out for expiration date
+  - price: .value, {value,value}, {value-value}           {0,99999999}            strike price value
+  - offset: .value, {value,value}, {value-value}          {-99,99}                strike offset from equity ask price
+  - pctabove: .value, {value,value,etc}, {value-value}    {-99,99}                strike percentage value above ask price
+  - pctbelow: .value, {value,value,etc}, {value-value}    {-99,99}                strike percentage value above ask price
+  - limit.999
+
+  If 'day' is specified and no 'days' criteria is specified it will find the first expiration date for that day starting at the date.
+
+  expiredate.{starting_point}:...       starting_point = today,YYYY-MM-DD
+  expiredate.2026-06-07:day.fri
+  expiredate.2026-06-07:days{3-6}
+  strikeprice.{base_price}              base_price = float64(should be equity ask price)
+  strikeprice.120.40:offset.1           offset = 1
+  strikeprice.120.40:pctabove{3.5-5}    3.5 thru 5.0 percent
+  expiredate.2026-06-07:days{2-6};strikeprice.120.40:offset.1
 
 
 Option Reports
 
 A:
-Symbol TranTime ExpireDate Strike$ EDays Off Sym Ask Sym Value CallAsk CallSel CallEst STO Amt STO Pct
------- -------- ---------- ------- ----- --- ------- --------- ------- ------- ------- ------- -------
+Symbol TranTime ExpireDate Strike$ EDays Off Sym Ask SymAsk% Sym Value CallAsk CallSel CallEst STO Amt STO Pct
+------ -------- ---------- ------- ----- --- ------- ------- --------- ------- ------- ------- ------- -------
