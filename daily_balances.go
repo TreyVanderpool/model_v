@@ -510,7 +510,6 @@ func _AddOtherValues( asPhoneNbr, asEndOfText string, afBegValue, afEndValue flo
 // Function: _SendText
 //--------------------------------------------------------------
 func _SendText() {
-  // var err           error
   var lsPhoneList   []string
 
   gcSendText.ClearPhoneList()

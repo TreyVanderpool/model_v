@@ -17,10 +17,13 @@ import (
 	osql "github.com/TreyVanderpool/oliver-golib/sql"
 	otxt "github.com/TreyVanderpool/oliver-golib/text"
 	ou "github.com/TreyVanderpool/oliver-golib/utils"
+	oimg "github.com/TreyVanderpool/oliver-golib/image"
 )
 
 const (
   MODEL_VERSION          string = "v"
+  TEXT_PLACE_ORDER       string = "place_order"
+  TEXT_PREVIEW_ORDER     string = "preview_order"
 )
 
 var (
@@ -31,6 +34,9 @@ var (
   gbUseTestData     *bool
   gbSendText        *bool
   gbSchwabLive      *bool
+  gsCheckText       []string = make( []string, 0 )
+  gcFont            *oimg.Font
+  // gsTestTextNbr     *string
 )
 
 var (
@@ -54,11 +60,19 @@ func main() {
   gbUseTestData = flag.Bool( "testdata", false, "use test data for account info" )
   gbSendText = flag.Bool( "sendtext", false, "send text on orders or warnings" )
   gbSchwabLive = flag.Bool( "schwab", false, "send live requests to Schwab, production mode")
+  // gsTestTextNbr = flag.String( "testtext", "", "Test override text phone number")
   flag.Parse()
 
   if *gbUseTestData {
     _LoadTestData()
   }
+
+  // Use this to try and calculate text sizes so I can align the text message
+  // with left/right alignments for numbers.
+  lcImg := oimg.NewImage( 1, 1, oimg.BLACK )
+  lcImg.LoadFont( "sans", "GoogleSans-Regular.ttf", 14 )
+  gcFont = lcImg.GetFont( "sans" )
+
 
   Log = oinit.Init( oinit.INIT_LOG, lsLogLevel ).(ol.ILogger)
   Log.SetPatterns( "%M\n", "%D %-5L %T:%-20.20F:%3# %M\n" )
@@ -83,13 +97,17 @@ func main() {
   }
 
   for _, lCC := range lcCC {
-    Log.Info( "Processing for *****%s: %-6s  ExpireDays: %2d  MaxContracts: %3d  PctAbove: %5.2f",
-              lCC.AccountNbr[len(lCC.AccountNbr)-3:],
+    Log.Info( "Processing for %s: %-6s  ExpireDays: %2d  MaxContracts: %3d  PctAbove: %5.2f",
+              osch.GetMaskedNbr( lCC.AccountNbr ),
               lCC.Symbol,
               lCC.ExpireDays,
               lCC.MaxContracts,
               lCC.PctAboveSymbolPrice )
     _ProcessCoveredCall( lCC )
+  }
+
+  if len(gsCheckText) > 0 {
+    _SendText( TEXT_PREVIEW_ORDER, strings.Join( gsCheckText, "\n" ) )
   }
 }
 
@@ -242,9 +260,9 @@ func _GetExpirationDate( acCC osql.VCoveredCall, aiContractCount int ) ( *osch.C
   lcExpireDate = nil
   lcStrikePrice = nil
 
-  for lExpireDate, lStrike := range lcOptions.Strikes {
+  for lExpireDate, lStrike := range lcOptions.Strikes[acCC.Symbol] {
     if lStrike.ExpireDays == acCC.ExpireDays {
-      lcEDate := lcOptions.Strikes[lExpireDate]
+      lcEDate := lcOptions.Strikes[acCC.Symbol][lExpireDate]
       lcExpireDate = &lcEDate
     }
   }
@@ -284,14 +302,14 @@ func _GetExpirationDate( acCC osql.VCoveredCall, aiContractCount int ) ( *osch.C
 
   if ! acCC.CheckValues {
     if lfABPctDiff > 10 {
-      lsText := fmt.Sprintf( "Purchase Covered Calls:\n--- Warning - Ask/Bid Spread too high.\n%-6s : %s : %.2f\nAsk: %5.2f  Bid: %5.2f  Diff:%6.2f%%\nAccount: *****%s\nContract Count: %d\nReview and manually place order!",
+      lsText := fmt.Sprintf( "Purchase Covered Calls:\n--- Warning - Ask/Bid Spread too high.\n%-6s : %s : %.2f\nAsk: %5.2f  Bid: %5.2f  Diff:%6.2f%%\nAccount: %s\nContract Count: %d\nReview and manually place order!",
                             acCC.Symbol, 
                             lcExpireDate.ExpireDate, 
                             lcStrikePrice.StrikePrice, 
                             lcStrikePrice.Call.Ask, 
                             lcStrikePrice.Call.Bid, 
                             lfABPctDiff,
-                            acCC.AccountNbr[len(acCC.AccountNbr)-3:],
+                            osch.GetMaskedNbr( acCC.AccountNbr ),
                             aiContractCount )
       _SendText( "ask_bid_pct", lsText )
       return nil, nil, nil
@@ -310,16 +328,21 @@ func _CreateAndPlaceOrder( acCC osql.VCoveredCall, acExpireDate *osch.CStrike, a
   lcOrder.OrderLegCollection[0].Instrument.AssetType = "OPTION"
   lsMsg := ""
   lfEstValue := _EstimatedValue( acStrikePrice, aiContractCount )
-  // lfEstValue = ( acStrikePrice.Call.Ask + acStrikePrice.Call.Bid ) / 2
-  // lfEstValue *= ( float64(aiContractCount) * 100 )
 
   if acCC.CheckValues {
-      lsMsg = fmt.Sprintf( "Purchase Covered Calls:\nCHECK VALUE...\n%-6s : %s : %.2f\nEstimated Value: $%s",
-                           acCC.Symbol, 
-                           acExpireDate.ExpireDate, 
-                           acStrikePrice.StrikePrice, 
-                           ou.Commas( "%.0f", lfEstValue ) )
-      _SendText( "preview_order", lsMsg )
+      lfABPctDiff := ou.PctChg( acStrikePrice.Call.Bid, acStrikePrice.Call.Ask )
+      // lsMsg = fmt.Sprintf( "Purchase Covered Calls:\nCHECK VALUE...\n%-6s : %s : %.2f\nEstimated Value: $%s",
+      //                      acCC.Symbol, 
+      //                      acExpireDate.ExpireDate, 
+      //                      acStrikePrice.StrikePrice, 
+      //                      ou.Commas( "%.0f", lfEstValue ) )
+      // gcFont.AppendRightJustified( "  -- Accumulated G/L:", ou.Commas( "$%.0f", lfTotalGL ), TEXT_MAX_LEN )
+      lsEmoji := otxt.EMOJI_GREEN_DOT
+      if lfABPctDiff > 10 { lsEmoji = otxt.EMOJI_YELLOW_DOT }
+      lsMsg = fmt.Sprintf( "%s s%s : %s : %.1f : $%.0f",
+                           lsEmoji, acCC.Symbol, acExpireDate.ExpireDate, acStrikePrice.StrikePrice, lfEstValue )
+      gsCheckText = append( gsCheckText, lsMsg )
+      // _SendText( TEXT_PREVIEW_ORDER, lsMsg )
       return nil
   }
 
@@ -330,14 +353,14 @@ func _CreateAndPlaceOrder( acCC osql.VCoveredCall, acExpireDate *osch.CStrike, a
       Log.Info( "REQ : %s", Schwab.HTTP.RequestBody )
       Log.Info( "RESP: %+v", lcResp )
     } else {
-      lsMsg = fmt.Sprintf( "Purchase Covered Calls:\nPreview Order was successful...\n%-6s : %s : %.2f\nAccount: *****%s\nContract Count: %d\nEstimated Value: $%s",
+      lsMsg = fmt.Sprintf( "Purchase Covered Calls:\nPreview Order was successful...\n%-6s : %s : %.2f\nAccount: %s\nContract Count: %d\nEstimated Value: $%s",
                            acCC.Symbol, 
                            acExpireDate.ExpireDate, 
                            acStrikePrice.StrikePrice, 
-                           acCC.AccountNbr[len(acCC.AccountNbr)-3:],
+                           osch.GetMaskedNbr( acCC.AccountNbr ),
                            aiContractCount,
                            ou.Commas( "%.0f", lfEstValue ) )
-      _SendText( "preview_order", lsMsg )
+      _SendText( TEXT_PREVIEW_ORDER, lsMsg )
       Log.Info( "RESP: %s", string(Schwab.HTTP.ResponseBody) )
     }
 
@@ -349,23 +372,23 @@ func _CreateAndPlaceOrder( acCC osql.VCoveredCall, acExpireDate *osch.CStrike, a
   if lcResp.Error != nil {
     Log.Info( "REQ : %s", Schwab.HTTP.RequestBody )
     Log.Info( "RESP: %+v", lcResp )
-    lsMsg = fmt.Sprintf( "Purchase Covered Calls:\nPlace Order FAILED!!!\n%-6s : %s : %.2f\nAccount: *****%s\nContract Count: %d\n%s",
+    lsMsg = fmt.Sprintf( "Purchase Covered Calls:\nPlace Order FAILED!!!\n%-6s : %s : %.2f\nAccount: %s\nContract Count: %d\n%s",
                          acCC.Symbol, 
                          acExpireDate.ExpireDate, 
                          acStrikePrice.StrikePrice, 
-                         acCC.AccountNbr[len(acCC.AccountNbr)-3:],
+                         osch.GetMaskedNbr( acCC.AccountNbr ),
                          aiContractCount,
                          lcResp.Error )
   } else {
-    lsMsg = fmt.Sprintf( "Purchase Covered Calls:\nPlace Order SUCCESSFUL!!!\n%-6s : %s : %.2f\nAccount: *****%s\nContract Count: %d",
+    lsMsg = fmt.Sprintf( "Purchase Covered Calls:\nPlace Order SUCCESSFUL!!!\n%-6s : %s : %.2f\nAccount: %s\nContract Count: %d",
                          acCC.Symbol, 
                          acExpireDate.ExpireDate, 
                          acStrikePrice.StrikePrice, 
-                         acCC.AccountNbr[len(acCC.AccountNbr)-3:],
+                         osch.GetMaskedNbr( acCC.AccountNbr ),
                          aiContractCount )
   }
 
-  _SendText( "place_order", lsMsg )
+  _SendText( TEXT_PLACE_ORDER, lsMsg )
 
   return nil
 }
@@ -374,6 +397,12 @@ func _CreateAndPlaceOrder( acCC osql.VCoveredCall, acExpireDate *osch.CStrike, a
 // Function: _SendText
 //--------------------------------------------------------------
 func _SendText( asTextName, asTextMsg string ) {
+
+
+  // if *gsTestTextNbr > "" {
+  //   lsPhoneList = append( lsPhoneList, *gsTestTextNbr )
+  //   gcSendText.AddPhoneList( lsPhoneList )
+  // }
 
   // We assume 'Schwab' object has already been initialized and
   // the account number is previously set.
