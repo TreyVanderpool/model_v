@@ -628,6 +628,8 @@ func _GenerateCoveredCallReport() {
     }
   }
 
+  if len(lcItems) == 0 { return }
+  
   // Sort in descending order
   sort.Slice( lcItems, func( i, j int ) bool {
     return lcItems[i].PctOfEquity > lcItems[j].PctOfEquity
