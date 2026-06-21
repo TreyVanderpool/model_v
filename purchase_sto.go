@@ -331,16 +331,14 @@ func _CreateAndPlaceOrder( acCC osql.VCoveredCall, acExpireDate *osch.CStrike, a
 
   if acCC.CheckValues {
       lfABPctDiff := ou.PctChg( acStrikePrice.Call.Bid, acStrikePrice.Call.Ask )
-      // lsMsg = fmt.Sprintf( "Purchase Covered Calls:\nCHECK VALUE...\n%-6s : %s : %.2f\nEstimated Value: $%s",
-      //                      acCC.Symbol, 
-      //                      acExpireDate.ExpireDate, 
-      //                      acStrikePrice.StrikePrice, 
-      //                      ou.Commas( "%.0f", lfEstValue ) )
-      // gcFont.AppendRightJustified( "  -- Accumulated G/L:", ou.Commas( "$%.0f", lfTotalGL ), TEXT_MAX_LEN )
       lsEmoji := otxt.EMOJI_GREEN_DOT
       if lfABPctDiff > 10 { lsEmoji = otxt.EMOJI_YELLOW_DOT }
-      lsMsg = fmt.Sprintf( "%s s%s : %s : %.1f : $%.0f",
-                           lsEmoji, acCC.Symbol, acExpireDate.ExpireDate, acStrikePrice.StrikePrice, lfEstValue )
+      lsMsg = fmt.Sprintf( "%s %s : %s : %.1f : $%.0f",
+                           lsEmoji, 
+                           acCC.Symbol, 
+                           acExpireDate.ExpireDate, 
+                           acStrikePrice.StrikePrice, 
+                           lfEstValue )
       gsCheckText = append( gsCheckText, lsMsg )
       // _SendText( TEXT_PREVIEW_ORDER, lsMsg )
       return nil
