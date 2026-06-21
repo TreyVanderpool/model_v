@@ -93,10 +93,8 @@ func main() {
   // No report generated here, just retrieves the data and writes it to the database.
   if *gbUpdateBalances {
     for _, lAcct := range lcAPIAcct {
-      // lbTotals := true
       for _, lSchwab := range lAcct.SchwabAccounts {
         _ProcessBalances( lSchwab, lAcct.Owners, true )
-        // lbTotals = false
       }
     }
   } else {
@@ -243,6 +241,7 @@ func _ProcessPositions( acPosition osch.Position, asAcctNbr string, abProcessTot
     lcDV.Shares = acPosition.ShortQuantity
   } else {
     lcDV.Shares = acPosition.LongQuantity
+    lcDV.PurchasePrice = acPosition.AveragePrice
     lcDV.TodaysPrice = acPosition.MarketValue / acPosition.LongQuantity
     lcDV.TodaysGainLoss = acPosition.CurrDayProfitLoss
     lcDV.TodaysPctChg = acPosition.CurrDayProfitLossPct
@@ -306,6 +305,12 @@ func _ProcessOrders( acAcct osch.APISchwabAccount, acStartDate, acEndDate *time.
       lcDV.PurchasePrice /= float64(len(lOrder.OrderActivityCollection))
     }
 
+    if lcDV.TypeText == "cov_call" {
+      lcDV.TotalValue = ( lcDV.Shares * 100 ) * lcDV.PurchasePrice
+    } else {
+      lcDV.TotalValue = lcDV.Shares * lcDV.PurchasePrice
+    }
+
     Log.Info( "Order: %d : %-21s : %s -- Qty: %9.2f  Price: %9.2f : %-10s : %s",
               lcDV.OrderId, lcDV.Symbol, lcDV.TranDate, lcDV.Shares, lcDV.PurchasePrice, lcDV.TypeText, lcDV.Instruction )
 
@@ -339,6 +344,8 @@ func _GenerateDailyReport( acAPIAcct osch.APIAccount ) {
     lfTotalValue := 0.0
     lfTotalGL := 0.0
     lfTotalCC := 0.0
+    lfWeekCC := 0.0
+    lfMonthCC := 0.0
 
     for _, lAcct := range acAPIAcct.SchwabAccounts {
       Schwab.SetAccountNbr( lAcct.AccountNbr )
@@ -371,14 +378,16 @@ func _GenerateDailyReport( acAPIAcct osch.APIAccount ) {
       lfTotalCC += lfCoveredCalls
 
       if lbEOW {
-        lfBeg, lfEnd := _GetBegEndValues( lAcct.AccountNbr, lPhoneNbr, lbEOM )
+        lfBeg, lfEnd, lfCC := _GetBegEndValues( lAcct.AccountNbr, lPhoneNbr, lbEOM )
         lfWeekBeg += lfBeg
         lfWeekEnd += lfEnd
+        lfWeekCC += lfCC
       }
       if lbEOM {
-        lfBeg, lfEnd := _GetBegEndValues( lAcct.AccountNbr, lPhoneNbr, lbEOM )
+        lfBeg, lfEnd, lfCC := _GetBegEndValues( lAcct.AccountNbr, lPhoneNbr, lbEOM )
         lfMonthBeg += lfBeg
         lfMonthEnd += lfEnd
+        lfMonthCC += lfCC
       }
     }
 
@@ -395,15 +404,17 @@ func _GenerateDailyReport( acAPIAcct osch.APIAccount ) {
       if lfTotalCC > 0 {
         lsGLLine = gcFont.AppendRightJustified( "Total Covered Calls:", ou.Commas( "$%.0f", lfTotalCC ), TEXT_MAX_LEN ) + otxt.EMOJI_SMILE_WITH_TEETH
         gcSendText.AddLine( lPhoneNbr, lsGLLine )
+        lfWeekCC += lfTotalCC
+        lfMonthCC += lfTotalCC
       }
     }
 
     if lfWeekBeg != 0 {
-      _AddOtherValues( lPhoneNbr, "Week", lfWeekBeg, lfWeekEnd)
+      _AddOtherValues( lPhoneNbr, "Week", lfWeekBeg, lfWeekEnd, lfWeekCC )
     }
 
     if lfMonthBeg != 0 {
-      _AddOtherValues( lPhoneNbr, "Month", lfMonthBeg, lfMonthEnd)
+      _AddOtherValues( lPhoneNbr, "Month", lfMonthBeg, lfMonthEnd, lfMonthCC )
     }
     lbTotalsRpt = false
   }
@@ -481,7 +492,7 @@ func _GenerateReportByPhoneNbr( acAPIAcct osch.APISchwabAccount, asPhoneNbr, asO
 //--------------------------------------------------------------
 // Function: _GetBegEndValues
 //--------------------------------------------------------------
-func _GetBegEndValues( asAcctNbr, asPhoneNbr string, abEOM bool ) ( float64, float64 ) {
+func _GetBegEndValues( asAcctNbr, asPhoneNbr string, abEOM bool ) ( float64, float64, float64 ) {
   lcSDate := time.Time{}
 
   if abEOM {
@@ -496,7 +507,7 @@ func _GetBegEndValues( asAcctNbr, asPhoneNbr string, abEOM bool ) ( float64, flo
   for {
     lsDate := lcSDate.Format( ou.YYYY_MM_DD )
     if lsDate > *gsCurrDate {
-      return 0, 0
+      return 0, 0, 0
     }
     lsInfo, err := SQLs.S_DailyBalances( lsDate, asAcctNbr )
     if err == nil && lsInfo > "" {
@@ -506,13 +517,13 @@ func _GetBegEndValues( asAcctNbr, asPhoneNbr string, abEOM bool ) ( float64, flo
     lcSDate = lcSDate.AddDate( 0, 0, 1 )
   }
 
-  if lsBegData == "" { return 0, 0 }
+  if lsBegData == "" { return 0, 0, 0 }
 
   lsEndData, err := SQLs.S_DailyBalances( *gsCurrDate, asAcctNbr )
 
   if err != nil {
     Log.Exception( err )
-    return 0, 0
+    return 0, 0, 0
   }
 
   lcBegAcctInfo := osch.SecuritiesHeader{}
@@ -520,7 +531,7 @@ func _GetBegEndValues( asAcctNbr, asPhoneNbr string, abEOM bool ) ( float64, flo
 
   if err != nil {
     Log.Exception( err )
-    return 0, 0
+    return 0, 0, 0
   }
 
   lcEndAcctInfo := osch.SecuritiesHeader{}
@@ -528,21 +539,27 @@ func _GetBegEndValues( asAcctNbr, asPhoneNbr string, abEOM bool ) ( float64, flo
 
   if err != nil {
     Log.Exception( err )
-    return 0, 0
+    return 0, 0, 0
   }
 
+  lfCC := 0.0
   lfBegBalance := lcBegAcctInfo.Account.InitBalance.LiquidationValue
   lfEndBalance := lcEndAcctInfo.Account.CurrBalance.LiquidationValue
-  return lfBegBalance, lfEndBalance
+  lcDV, err := SQLs.S_DailyValuesSumByType( lcSDate.Format( ou.YYYY_MM_DD ), *gsCurrDate, asAcctNbr, "cov_call" )
+  if err == nil && len(lcDV) > 0 { lfCC = lcDV[0].TotalValue }
+  return lfBegBalance, lfEndBalance, lfCC
 }
 
 //--------------------------------------------------------------
 // Function: _SendText
 //--------------------------------------------------------------
-func _AddOtherValues( asPhoneNbr, asEndOfText string, afBegValue, afEndValue float64 ) {
+func _AddOtherValues( asPhoneNbr, asEndOfText string, afBegValue, afEndValue, afCovCalls float64 ) {
   lfGL := afEndValue - afBegValue
   gcSendText.AddLine( asPhoneNbr, "" )
   gcSendText.AddLine( asPhoneNbr, fmt.Sprintf( "End Of %s:", asEndOfText ) )
+  gcSendText.AddLine( asPhoneNbr, gcFont.AppendRightJustified( "  Covered Calls:", ou.Commas( "$%.0f", afCovCalls ), TEXT_MAX_LEN ) + otxt.EMOJI_SMILE_WITH_TEETH )
+  gcSendText.AddLine( asPhoneNbr, gcFont.AppendRightJustified( "  Beg Balance:", ou.Commas( "$%.0f", afBegValue ), TEXT_MAX_LEN ) )
+  gcSendText.AddLine( asPhoneNbr, gcFont.AppendRightJustified( "  End Balance:", ou.Commas( "$%.0f", afEndValue ), TEXT_MAX_LEN ) )
   // gcSendText.AddLine( asPhoneNbr, gcFont.AppendRightJustified( "  Total Value:", ou.Commas( "$%.0f", afEndValue ), TEXT_MAX_LEN ) )
   lsGLLine := gcFont.AppendRightJustified( fmt.Sprintf( "  -- %sly G/L:", asEndOfText ), ou.Commas( "$%.0f", lfGL ), TEXT_MAX_LEN )
 
@@ -628,8 +645,13 @@ func _GenerateCoveredCallReport() {
     }
   }
 
+  // Test items...
+  // lcItems = append( lcItems, _item{ Symbol: "OCUL", PctOfEquity: 7.01, Covered: 693 } )
+  // lcItems = append( lcItems, _item{ Symbol: "FLNC", PctOfEquity: 4.75, Covered: 230 } )
+  // lcItems = append( lcItems, _item{ Symbol: "FRMI", PctOfEquity: 4.01, Covered: 150 } )
+
   if len(lcItems) == 0 { return }
-  
+
   // Sort in descending order
   sort.Slice( lcItems, func( i, j int ) bool {
     return lcItems[i].PctOfEquity > lcItems[j].PctOfEquity
@@ -639,9 +661,14 @@ func _GenerateCoveredCallReport() {
   lsLines[0] = "Covered Call Breakdown\n"
 
   for i, lItem := range lcItems {
-    lsLines[i+1] = fmt.Sprintf( "%-10s : %5.2f%%  $%7.2f", lItem.Symbol, lItem.PctOfEquity, lItem.Covered )
+    lsLines[i+1] = fmt.Sprintf( "%s : %s%%  %s", 
+                                gcFont.MinWidthLeft( lItem.Symbol, 40 ), 
+                                gcFont.MinWidthRight( fmt.Sprintf( "%.2f", lItem.PctOfEquity ), 40 ),
+                                gcFont.MinWidthRight( ou.Commas( "$%.0f", lItem.Covered ), 40 ) )
   }
 
+  lsPhoneNbrs, _ := Schwab.GetPhoneNumbers( "cov_call_report" )
   gcSendText.ClearPhoneList()
-  gcSendText.SendMsgPhone( "4796445592", strings.Join( lsLines, "\n" ) )
+  gcSendText.AddPhoneList( lsPhoneNbrs )
+  gcSendText.SendMsg( strings.Join( lsLines, "\n" ) )
 }
