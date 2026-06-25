@@ -3,16 +3,18 @@
 package main
 
 import (
-  "flag"
-  "time"
-  "encoding/json"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"strings"
+	"time"
 
-  odb "github.com/TreyVanderpool/oliver-golib/db"
-  oinit "github.com/TreyVanderpool/oliver-golib/init"
-  ol "github.com/TreyVanderpool/oliver-golib/logging"
-  osch "github.com/TreyVanderpool/oliver-golib/schwab"
-  osql "github.com/TreyVanderpool/oliver-golib/sql"
-  ou "github.com/TreyVanderpool/oliver-golib/utils"
+	odb "github.com/TreyVanderpool/oliver-golib/db"
+	oinit "github.com/TreyVanderpool/oliver-golib/init"
+	ol "github.com/TreyVanderpool/oliver-golib/logging"
+	osch "github.com/TreyVanderpool/oliver-golib/schwab"
+	osql "github.com/TreyVanderpool/oliver-golib/sql"
+	ou "github.com/TreyVanderpool/oliver-golib/utils"
 )
 
 const (
@@ -109,9 +111,10 @@ func _ProcessTransactions( acAcct osch.AcctInfo, acStartDate, acEndDate *time.Ti
 
         // Save the full transaction info data structure from Schwab
         err = SQLs.I_DailyTransactions( lDate, acAcct.AccountNbr, lType, string(lbData) )
+        if err != nil { Log.Exception( err ) }
 
-        if err != nil {
-          Log.Exception( err )
+        if lType == "RECEIVE_AND_DELIVER" {
+          _PostDailyValueTransactions( lAcct )
         }
       }
     }
@@ -119,7 +122,7 @@ func _ProcessTransactions( acAcct osch.AcctInfo, acStartDate, acEndDate *time.Ti
 }
 
 //-------------------------------------------------------------
-// Function: _ProcessTransactions
+// Function: _GetTransactionsByDate
 //-------------------------------------------------------------
 func _GetTransactionsByDate( acStartDate, acEndDate *time.Time, asType string ) ( map[string][]osch.Activity, error ) {
   lcMap := make( map[string][]osch.Activity )
@@ -163,4 +166,34 @@ func _GetTransactionsByDate( acStartDate, acEndDate *time.Time, asType string ) 
   }
 
   return lcMap, nil
+}
+
+//-------------------------------------------------------------
+// Function: _PostDailyValueTransactions
+//-------------------------------------------------------------
+func _PostDailyValueTransactions(  acActiviies []osch.Activity ) {
+  for _, lAct := range acActiviies {
+    for _, lItem := range lAct.TransferItems {
+      if lItem.Instrument.AssetType != "OPTION" { continue }
+      lcDV := &osql.DailyValues{}
+      lcDV.Symbol = lItem.Instrument.Symbol
+      lcDV.RootSymbol = lItem.Instrument.UnderlyingSymbol
+      lcDV.TranDate = lAct.SettlementDate[0:10]
+      lcDV.AccountNbr = lAct.AccountNumber
+      // for _, lOD := range lItem.Instrument.OptionDeliverables {
+      //   lcDV.Shares += float64(lOD.DeliverableNumber)
+      // }
+      lcDV.Shares = lItem.Amount
+      if strings.HasPrefix( lAct.Description, "Removed due to Expiration" ) {
+        lcDV.TypeText = "expired"
+      } else if strings.HasPrefix( lAct.Description, "Removed due to Assignment" ) {
+        lcDV.TypeText = "assigned"
+      } else {
+        fmt.Printf( "Unexpected descriptions: %s : %s\n", lItem.Instrument.Symbol, lAct.Description )
+      }
+      if lcDV.TypeText > "" {
+        SQLs.I_DailyValues( lcDV )
+      }
+    }
+  }
 }

@@ -121,6 +121,11 @@ func main() {
 
 	Log.Info( "Starting: Looking at %d symbols", len(lsSymbolsList) )
 
+  if len(lsSymbolsList) == 0 {
+    fmt.Printf( "No symbol names found.\n" )
+    return
+  }
+
 	_PutinSaveList( lsSymbolsList )
 
 	if *gsRunDate == time.Now().Format( ou.YYYY_MM_DD ) {
