@@ -203,7 +203,9 @@ func _RetrieveOptionChains( acQuotes map[string]osch.Quote, acWaitGroup *sync.Wa
 			continue
 		}
 
+  	gcPrintLock.Lock()
     lcES, err := lcChain.FindUsing( gcExecutor, nil )
+	  gcPrintLock.Unlock()
 
     if len(lcES) == 0 { continue }
 
