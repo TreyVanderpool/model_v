@@ -138,12 +138,8 @@ func main() {
 		}
 		lcWaitGroup := &sync.WaitGroup{}
 		lcWaitGroup.Add( *liThreads )
-		// lcBWaitGroup := &sync.WaitGroup{}
-		// lcBWaitGroup.Add( *liThreads )
 		for range *liThreads {
       go _RetrieveOptionChains( lcQuotes, lcWaitGroup )
-			// go _ReportALiveData( lcRpt, lcQuotes, lcAWaitGroup )
-			// go _ReportBLiveData( lcRpt, lcQuotes, lcBWaitGroup )
 		}
 		lcWaitGroup.Wait()
 	}
@@ -165,11 +161,7 @@ func _PutinSaveList(asList []string) {
 // Function: _ReportALiveData
 // ------------------------------------------------------------------------------
 func _RetrieveOptionChains( acQuotes map[string]osch.Quote, acWaitGroup *sync.WaitGroup ) {
-	lcDate := time.Now().AddDate( 0, 0, *giExpireDays )
-	lsExpireDate := lcDate.Format( ou.YYYY_MM_DD )
 	lsRange := strings.Split( *gsSymbolRange, "," )
-	lcOptionParms := make( map[string]string )
-	lcOptionParms["toDate"] = lsExpireDate
 	lfLowRange, _ := strconv.ParseFloat( lsRange[0], 64 )
 	lfHighRange, _ := strconv.ParseFloat( lsRange[1], 64 )
 	defer acWaitGroup.Done()
@@ -178,13 +170,23 @@ func _RetrieveOptionChains( acQuotes map[string]osch.Quote, acWaitGroup *sync.Wa
 		panic("Symbol range value '%s' must be 2 values separated by comma")
 	}
 
+	gcPrintLock.Lock()
+	if ! gbRptAHeadingsPrinted {
+		fmt.Printf( "RA: Report: Range: %.0f/%.0f  %s\n",	lfLowRange, lfHighRange, gcExecutor.GetOriginalText() )
+		gbRptAHeadingsPrinted = true
+	}
+	if ! gbRptBHeadingsPrinted {
+		fmt.Printf( "RB: Report: Range: %.0f/%.0f  %s\n", lfLowRange, lfHighRange, gcExecutor.GetOriginalText() )
+		gbRptBHeadingsPrinted = true
+	}
+	gcPrintLock.Unlock()
+
 	for {
 		lcElement := gcRptList.RemoveFront()
 		if lcElement == nil {
 			break
 		}
 
-		// liCount++
 		lsSymbol := lcElement.Value.(string)
 		lcQuote, lbFnd := acQuotes[lsSymbol]
 		if ! lbFnd {
@@ -195,113 +197,60 @@ func _RetrieveOptionChains( acQuotes map[string]osch.Quote, acWaitGroup *sync.Wa
 			continue
 		}
 
-		lcChain, err := Schwab.GetOptionChain( lsSymbol, lcOptionParms )
+		lcChain, err := Schwab.GetOptionChain( lsSymbol, nil )
 		if err != nil {
 			gcRPTA.PrintLine( lsSymbol, err )
 			continue
 		}
 
-    _ReportALiveData( lcQuote, &lcChain, lfLowRange, lfHighRange )
-    _ReportBLiveData( lcQuote, &lcChain, lfLowRange, lfHighRange )
+    lcES, err := lcChain.FindUsing( gcExecutor, nil )
+
+    if len(lcES) == 0 { continue }
+
+    _ReportALiveData( lcQuote, &lcChain, lcES )
+    _ReportBLiveData( lcQuote, &lcChain, lcES )
   }
 }
 
 // ------------------------------------------------------------------------------
 // Function: _ReportALiveData
 // ------------------------------------------------------------------------------
-func _ReportALiveData( acQuote osch.Quote, acChain *osch.Chain, afLowRange, afHighRange float64 ) {
-	lcDate := time.Now().AddDate( 0, 0, *giExpireDays )
-	lsExpireDate := lcDate.Format( ou.YYYY_MM_DD )
-	// lcOptionParms := make( map[string]string )
-	// lcOptionParms["toDate"] = lsExpireDate
-	// lsRange := strings.Split( *gsSymbolRange, "," )
+func _ReportALiveData( acQuote osch.Quote, acChain *osch.Chain, acES []osch.CStrikePrice ) {
 	lsCurrTime := time.Now().Format( ou.HH_MM_SS )
-	// // defer acWaitGroup.Done()
 
-	// if len(lsRange) != 2 {
-	// 	panic("Symbol range value '%s' must be 2 values separated by comma")
-	// }
+  if len(acES) == 0 {
+    return
+  }
 
-	// lfLowRange, _ := strconv.ParseFloat( lsRange[0], 64 )
-	// lfHighRange, _ := strconv.ParseFloat( lsRange[1], 64 )
+  lfCallEstimateValue := ( acES[0].Price.Call.Ask + acES[0].Price.Call.Bid ) / 2
+  lfSTOValue := lfCallEstimateValue * 100
+  lfSTOPct := (lfSTOValue / ( acQuote.Quote.AskPrice * 100 )) * 100
 
-	gcPrintLock.Lock()
-	if ! gbRptAHeadingsPrinted {
-		fmt.Printf( "RA: Report: Range: %.0f/%.0f  ExpireDate: %d : %s  Strike Off: %d  Pct: %.2f\n",
-					afLowRange, afHighRange, *giExpireDays, lsExpireDate, *giStrikeOffset, *gfStrikePctOffset )
-		gbRptAHeadingsPrinted = true
-	}
-	gcPrintLock.Unlock()
+  if acES[0].Price.Call.Bid == 0 {
+    if *gbExcludeZeroBids {
+      return
+    }
+    lfSTOPct = 0
+    lfSTOValue = 0
+    lfCallEstimateValue = 0
+  }
 
-	// liCount := 0
-
-	// for {
-	// 	lcElement := gcRptList.RemoveFront()
-	// 	if lcElement == nil {
-	// 		break
-	// 	}
-
-	// 	liCount++
-	// 	lsSymbol := lcElement.Value.(string)
-	// 	lcQuote, lbFnd := acQuotes[lsSymbol]
-	// 	if !lbFnd {
-	// 		continue
-	// 	}
-
-	// 	if lcQuote.Quote.AskPrice < lfLowRange || lcQuote.Quote.AskPrice > lfHighRange {
-	// 		continue
-	// 	}
-
-	// 	lcChain, err := Schwab.GetOptionChain(lsSymbol, lcOptionParms)
-	// 	if err != nil {
-	// 		acRpt.PrintLine(lsSymbol, err)
-	// 		continue
-	// 	}
-
-		var lcExpireDate *osch.CStrike
-		var lcStrikePrice *osch.CPrice
-
-		if *gfStrikePctOffset != 0 {
-			lfPrice := acQuote.Quote.AskPrice * (1 + (*gfStrikePctOffset / 100))
-			lcExpireDate, lcStrikePrice = acChain.FindStrikePriceAbove( acQuote.Symbol, lsExpireDate, lfPrice )
-		} else {
-			lcExpireDate, lcStrikePrice = acChain.FindStrikePriceOffset( acQuote.Symbol, lsExpireDate, *giStrikeOffset )
-		}
-
-		if lcExpireDate == nil || lcStrikePrice == nil {
-			return
-		}
-
-		lfCallEstimateValue := ( lcStrikePrice.Call.Ask + lcStrikePrice.Call.Bid ) / 2
-		lfSTOValue := lfCallEstimateValue * 100
-		lfSTOPct := (lfSTOValue / ( acQuote.Quote.AskPrice * 100 )) * 100
-
-		if lcStrikePrice.Call.Bid == 0 {
-			if *gbExcludeZeroBids {
-				return
-			}
-			lfSTOPct = 0
-			lfSTOValue = 0
-			lfCallEstimateValue = 0
-		}
-
-		gcPrintLock.Lock()
-		gcRPTA.PrintLine( acQuote.Symbol,
-			lsCurrTime,
-			lcExpireDate.ExpireDate,
-			lcStrikePrice.StrikePrice,
-			lcExpireDate.ExpireDays,
-			lcStrikePrice.OffsetFromSymbol,
-			acQuote.Quote.AskPrice,
-			ou.PctChg( acQuote.Quote.AskPrice, lcStrikePrice.StrikePrice ),
-			acQuote.Quote.AskPrice*100,
-			lcStrikePrice.Call.Ask,
-			lcStrikePrice.Call.Bid,
-			lfCallEstimateValue,
-			lfSTOValue,
-			lfSTOPct )
-		gcPrintLock.Unlock()
-	// }
+  gcPrintLock.Lock()
+  gcRPTA.PrintLine( acQuote.Symbol,
+    lsCurrTime,
+    acQuote.Quote.AskPrice,
+    acES[0].Strike.ExpireDate,
+    acES[0].Price.StrikePrice,
+    acES[0].Strike.ExpireDays,
+    acES[0].Price.OffsetFromSymbol,
+    ou.PctChg( acQuote.Quote.AskPrice, acES[0].Price.StrikePrice ),
+    acQuote.Quote.AskPrice*100,
+    acES[0].Price.Call.Ask,
+    acES[0].Price.Call.Bid,
+    lfCallEstimateValue,
+    lfSTOValue,
+    lfSTOPct )
+  gcPrintLock.Unlock()
 }
 
 // ------------------------------------------------------------------------------
@@ -312,11 +261,11 @@ func _CreateReportA() *orpt.RPT {
 	lcRpt.SetReportName("RA:")
 	lcRpt.AddColumn("Symbol", "%s", 6, orpt.RPT_ALGN_LEFT)
 	lcRpt.AddColumn("TranTime", "%s", 8, orpt.RPT_ALGN_LEFT)
+	lcRpt.AddColumn("Sym Ask", "%.2f", 7, orpt.RPT_ALGN_RIGHT)
 	lcRpt.AddColumn("ExpireDate", "%s", 10, orpt.RPT_ALGN_LEFT)
 	lcRpt.AddColumn("Strike$", "%.1f", 7, orpt.RPT_ALGN_RIGHT)
 	lcRpt.AddColumn("EDays", "%d", 5, orpt.RPT_ALGN_RIGHT)
 	lcRpt.AddColumn("Off", "%d", 3, orpt.RPT_ALGN_RIGHT)
-	lcRpt.AddColumn("Sym Ask", "%.2f", 7, orpt.RPT_ALGN_RIGHT)
 	lcRpt.AddColumn("SymAsk%%", "%.2f%%", 7, orpt.RPT_ALGN_RIGHT)
 	lcRpt.AddColumn("Sym Value", "%.0f", 9, orpt.RPT_ALGN_RIGHT).SetCommas(true)
 	lcRpt.AddColumn("CallAsk", "%.2f", 7, orpt.RPT_ALGN_RIGHT).SetBWZ(true)
@@ -331,36 +280,20 @@ func _CreateReportA() *orpt.RPT {
 // ------------------------------------------------------------------------------
 // Function: _ReportBLiveData
 // ------------------------------------------------------------------------------
-func _ReportBLiveData( acQuote osch.Quote, acChain *osch.Chain, afLowRange, afHighRange float64 ) {
+func _ReportBLiveData( acQuote osch.Quote, acChain *osch.Chain, acES []osch.CStrikePrice ) {
 
-	gcPrintLock.Lock()
-	if ! gbRptBHeadingsPrinted {
-		fmt.Printf( "RB: Report: Range: %.0f/%.0f  %s\n",
-			afLowRange, afHighRange, gcExecutor.GetOriginalText() )
-		gbRptBHeadingsPrinted = true
-	}
-	gcPrintLock.Unlock()
+  lbPrinted := false
 
-  lcES, err := acChain.FindUsing( gcExecutor, nil )
-
-  if err != nil {
-    fmt.Printf( "ERROR: %s\n", err )
-    return
-    // os.Exit( 1 )
-  }
-
-  if len(lcES) == 0 { return }
-
-  sort.Slice( lcES, func( i, j int ) (bool) {
-    return ( lcES[i].Strike.ExpireDate < lcES[j].Strike.ExpireDate ) ||
-           ( lcES[i].Strike.ExpireDate == lcES[j].Strike.ExpireDate &&
-             lcES[i].Price.StrikePrice < lcES[j].Price.StrikePrice )
+  sort.Slice( acES, func( i, j int ) (bool) {
+    return ( acES[i].Strike.ExpireDate < acES[j].Strike.ExpireDate ) ||
+           ( acES[i].Strike.ExpireDate == acES[j].Strike.ExpireDate &&
+             acES[i].Price.StrikePrice < acES[j].Price.StrikePrice )
   })
 
   gcPrintLock.Lock()
   defer gcPrintLock.Unlock()
 
-  for _, lES := range lcES {
+  for _, lES := range acES {
 		lfCallEstimateValue := ( lES.Price.Call.Ask + lES.Price.Call.Bid ) / 2
 		lfSTOValue := lfCallEstimateValue * 100
 		lfSTOPct := (lfSTOValue / ( acQuote.Quote.AskPrice * 100 )) * 100
@@ -375,11 +308,11 @@ func _ReportBLiveData( acQuote osch.Quote, acChain *osch.Chain, afLowRange, afHi
 		}
 
 		gcRPTB.PrintLine( acChain.Symbol,
+			acQuote.Quote.AskPrice,
 			lES.Strike.ExpireDate,
 			lES.Price.StrikePrice,
 			lES.Strike.ExpireDays,
 			lES.Price.OffsetFromSymbol,
-			acQuote.Quote.AskPrice,
 			ou.PctChg( acQuote.Quote.AskPrice, lES.Price.StrikePrice ),
 			acQuote.Quote.AskPrice*100,
 			lES.Price.Call.Ask,
@@ -387,9 +320,12 @@ func _ReportBLiveData( acQuote osch.Quote, acChain *osch.Chain, afLowRange, afHi
 			lfCallEstimateValue,
 			lfSTOValue,
 			lfSTOPct)
+      lbPrinted = true
   }
 
-  fmt.Printf( "RB:\n" )
+  if lbPrinted {
+    fmt.Printf( "RB:\n" )
+  }
 }
 
 // ------------------------------------------------------------------------------
@@ -399,12 +335,11 @@ func _CreateReportB() *orpt.RPT {
 	lcRpt := orpt.NewRPT()
 	lcRpt.SetReportName("RB:")
 	lcRpt.AddColumn("Symbol", "%s", 6, orpt.RPT_ALGN_LEFT)
-	// lcRpt.AddColumn("TranTime", "%s", 8, orpt.RPT_ALGN_LEFT)
+	lcRpt.AddColumn("Sym Ask", "%.2f", 7, orpt.RPT_ALGN_RIGHT)
 	lcRpt.AddColumn("ExpireDate", "%s", 10, orpt.RPT_ALGN_LEFT)
 	lcRpt.AddColumn("Strike$", "%.1f", 7, orpt.RPT_ALGN_RIGHT)
 	lcRpt.AddColumn("EDays", "%d", 5, orpt.RPT_ALGN_RIGHT)
 	lcRpt.AddColumn("Off", "%d", 3, orpt.RPT_ALGN_RIGHT)
-	lcRpt.AddColumn("Sym Ask", "%.2f", 7, orpt.RPT_ALGN_RIGHT)
 	lcRpt.AddColumn("SymAsk%%", "%.2f%%", 7, orpt.RPT_ALGN_RIGHT)
 	lcRpt.AddColumn("Sym Value", "%.0f", 9, orpt.RPT_ALGN_RIGHT).SetCommas(true)
 	lcRpt.AddColumn("CallAsk", "%.2f", 7, orpt.RPT_ALGN_RIGHT).SetBWZ(true)
