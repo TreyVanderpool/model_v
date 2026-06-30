@@ -331,15 +331,14 @@ func _GenerateDailyReport( acAPIAcct osch.APIAccount ) {
   lbEOW := Schwab.IsEndOfWeek( *gsCurrDate )
   lbEOM := Schwab.IsEndOfMonth( *gsCurrDate )
 
-  lfWeekBeg := 0.0
-  lfWeekEnd := 0.0
-  lfMonthBeg := 0.0
-  lfMonthEnd := 0.0
-  lbTotalsRpt := true
-
   lsPhoneNbrs, err := Schwab.GetAllVerionTypePhoneNbrs( MODEL_VERSION, REPORT_NAME )
 
   for _, lPhoneNbr := range lsPhoneNbrs {
+    lfWeekBeg := 0.0
+    lfWeekEnd := 0.0
+    lfMonthBeg := 0.0
+    lfMonthEnd := 0.0
+    lbTotalsRpt := true
     liAcctCount := 0
     lfTotalValue := 0.0
     lfTotalGL := 0.0
