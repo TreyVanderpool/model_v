@@ -28,8 +28,9 @@ import (
 )
 
 const (
-	MODEL_VERSION string = "v"
-	THREAD_COUNT  int    = 1
+	MODEL_VERSION     string = "v"
+	THREAD_COUNT      int    = 1
+  DEFAULT_AWHERE    string = "strike.offset between 1 and 5 and expire.day in (thursday,friday) and expire.days <= 7 and call.bid > highest.call.bid; clear(); highest.call.bid = call.bid"
 )
 
 var (
@@ -49,7 +50,8 @@ var (
 	gcPrintLock           sync.Mutex
 	gbRptAHeadingsPrinted bool = false
 	gbRptBHeadingsPrinted bool = false
-  gcExecutor            *osyn.Executor
+  gcExecutorB           *osyn.Executor
+  gcExecutorA           *osyn.Executor
   gcRPTA                *orpt.RPT
   gcRPTB                *orpt.RPT
 )
@@ -85,6 +87,7 @@ func main() {
 	gbExcludeZeroBids = flag.Bool( "excludezerobid", false, "Exclude zero dollar CALL bids" )
 	liThreads := flag.Int( "threads", THREAD_COUNT, "Thread count to use" )
   lsRptBWhere := flag.String( "bwhere", "", "where clause for RPT B")
+  lsRptAWhere := flag.String( "awhere", DEFAULT_AWHERE, "where clause for RPT A")
 	flag.Parse()
 
 	Log = oinit.Init( oinit.INIT_LOG, lsLogLevel ).(ol.ILogger)
@@ -101,8 +104,11 @@ func main() {
     return
   }
 
+  lcSyntax := osyn.CreateSyntax()
   var err     error
-  gcExecutor, err = osyn.CreateExecutor( osyn.CreateSyntax(), *lsRptBWhere, nil )
+  gcExecutorB, err = osyn.CreateExecutor( lcSyntax, *lsRptBWhere )
+  gcExecutorA, err = osyn.CreateExecutor( lcSyntax,
+                                          *lsRptAWhere )
 
   if err != nil {
     fmt.Printf( "ERROR: %s\n", err )
@@ -172,11 +178,11 @@ func _RetrieveOptionChains( acQuotes map[string]osch.Quote, acWaitGroup *sync.Wa
 
 	gcPrintLock.Lock()
 	if ! gbRptAHeadingsPrinted {
-		fmt.Printf( "RA: Report: Range: %.0f/%.0f  %s\n",	lfLowRange, lfHighRange, gcExecutor.GetOriginalText() )
+		fmt.Printf( "RA: Report: Range: %.0f/%.0f  %s\n",	lfLowRange, lfHighRange, gcExecutorB.GetOriginalText() )
 		gbRptAHeadingsPrinted = true
 	}
 	if ! gbRptBHeadingsPrinted {
-		fmt.Printf( "RB: Report: Range: %.0f/%.0f  %s\n", lfLowRange, lfHighRange, gcExecutor.GetOriginalText() )
+		fmt.Printf( "RB: Report: Range: %.0f/%.0f  %s\n", lfLowRange, lfHighRange, gcExecutorB.GetOriginalText() )
 		gbRptBHeadingsPrinted = true
 	}
 	gcPrintLock.Unlock()
@@ -203,14 +209,17 @@ func _RetrieveOptionChains( acQuotes map[string]osch.Quote, acWaitGroup *sync.Wa
 			continue
 		}
 
-  	gcPrintLock.Lock()
-    lcES, err := lcChain.FindUsing( gcExecutor, nil )
-	  gcPrintLock.Unlock()
+  	// gcPrintLock.Lock()
+    lcVars := make( map[string]any )
+    lcVars["highest.call.bid"] = 0.0
+    lcESa, err := lcChain.FindUsing( gcExecutorA, &lcVars )
+    lcESb, err := lcChain.FindUsing( gcExecutorB, nil )
+	//   gcPrintLock.Unlock()
 
-    if len(lcES) == 0 { continue }
+    // if len(lcES) == 0 { continue }
 
-    _ReportALiveData( lcQuote, &lcChain, lcES )
-    _ReportBLiveData( lcQuote, &lcChain, lcES )
+    if len(lcESa) > 0 { _ReportALiveData( lcQuote, &lcChain, lcESa ) }
+    if len(lcESb) > 0 { _ReportBLiveData( lcQuote, &lcChain, lcESb ) }
   }
 }
 
@@ -301,9 +310,9 @@ func _ReportBLiveData( acQuote osch.Quote, acChain *osch.Chain, acES []osch.CStr
 		lfSTOPct := (lfSTOValue / ( acQuote.Quote.AskPrice * 100 )) * 100
 
 		if lES.Price.Call.Bid == 0 {
-			if *gbExcludeZeroBids {
-				continue
-			}
+			// if *gbExcludeZeroBids {
+			// 	continue
+			// }
 			lfSTOPct = 0
 			lfSTOValue = 0
 			lfCallEstimateValue = 0
@@ -344,11 +353,11 @@ func _CreateReportB() *orpt.RPT {
 	lcRpt.AddColumn("Off", "%d", 3, orpt.RPT_ALGN_RIGHT)
 	lcRpt.AddColumn("SymAsk%%", "%.2f%%", 7, orpt.RPT_ALGN_RIGHT)
 	lcRpt.AddColumn("Sym Value", "%.0f", 9, orpt.RPT_ALGN_RIGHT).SetCommas(true)
-	lcRpt.AddColumn("CallAsk", "%.2f", 7, orpt.RPT_ALGN_RIGHT).SetBWZ(true)
-	lcRpt.AddColumn("CallBid", "%.2f", 7, orpt.RPT_ALGN_RIGHT).SetBWZ(true)
-	lcRpt.AddColumn("CallEst", "%.2f", 7, orpt.RPT_ALGN_RIGHT).SetBWZ(true)
+	lcRpt.AddColumn("CallAsk", "%.2f", 7, orpt.RPT_ALGN_RIGHT).SetBWZ(true).SetBWZ(true)
+	lcRpt.AddColumn("CallBid", "%.2f", 7, orpt.RPT_ALGN_RIGHT).SetBWZ(true).SetBWZ(true)
+	lcRpt.AddColumn("CallEst", "%.2f", 7, orpt.RPT_ALGN_RIGHT).SetBWZ(true).SetBWZ(true)
 	lcRpt.AddColumn("STO Amt", "%.0f", 7, orpt.RPT_ALGN_RIGHT).SetCommas(true).SetBWZ(true)
-	lcRpt.AddColumn("STO Pct", "%.2f%%", 7, orpt.RPT_ALGN_RIGHT).SetBWZ(true)
+	lcRpt.AddColumn("STO Pct", "%.2f%%", 7, orpt.RPT_ALGN_RIGHT).SetBWZ(true).SetBWZ(true)
 
 	return lcRpt
 }
