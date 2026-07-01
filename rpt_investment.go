@@ -66,8 +66,6 @@ func main() {
   Schwab = oinit.Init( oinit.INIT_SCHWAB, Log, DB ).(*osch.SCHWAB)
   SQLs = oinit.Init( oinit.INIT_SQLS, Log, DB ).(osql.SQLs)
 
-  fmt.Printf( "Investment Report\n" )
-
   if *lsAcctNbr == "" {
     Schwab.SetAnyAccount()
     *lsAcctNbr = Schwab.GetAccountNbr()
@@ -78,6 +76,8 @@ func main() {
     fmt.Printf( "ERROR: %s\n", err )
     return
   }
+
+  fmt.Printf( "Investment Report: %s\n", osch.GetMaskedNbr( *lsAcctNbr ) )
 
   if len(lcValues) == 0 {
     fmt.Printf( "No records found.\n" )

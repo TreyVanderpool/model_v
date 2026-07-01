@@ -284,6 +284,11 @@ func _ProcessOrders( acAcct osch.APISchwabAccount, acStartDate, acEndDate *time.
     for _, lLeg := range lOrder.OrderLegCollection {
       lcDV.Symbol = lLeg.Instrument.Symbol
       lcDV.Instruction = lLeg.Instruction
+			if len(lcDV.Symbol) > 6 {
+				lcDV.RootSymbol, _, _, _ = osch.SplitOptionSymbol( lcDV.Symbol )
+			} else {
+				lcDV.RootSymbol = lcDV.Symbol
+			}
       switch lLeg.Instruction {
         case "BUY":
           lcDV.TypeText = "buy"
