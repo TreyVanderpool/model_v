@@ -30,7 +30,8 @@ import (
 const (
 	MODEL_VERSION     string = "v"
 	THREAD_COUNT      int    = 1
-  DEFAULT_AWHERE    string = "strike.offset between 1 and 5 and expire.day in (thursday,friday) and expire.days <= 7 and call.bid > highest.call.bid; clear(); highest.call.bid = call.bid"
+  DEFAULT_AWHERE    string = "strike.offset between 1 and 5 and expire.day in (thursday,friday) and expire.days <= 7 and call.sell_to_open.pct > highest.call.sto.pct; clear(); highest.call.sto.pct = call.sell_to_open.pct"
+  // DEFAULT_AWHERE    string = "strike.offset between 1 and 5 and expire.day in (thursday,friday) and expire.days <= 7 and call.bid > highest.call.bid; clear(); highest.call.bid = call.bid"
 )
 
 var (
@@ -139,6 +140,7 @@ func main() {
 		gcRPTB = _CreateReportB()
 		lcQuotes, err := Schwab.GetSymbolQuotes( lsSymbolsList, "" )
 		if err != nil {
+      Log.Error( "ERROR: %s", string(Schwab.HTTP.ResponseBody) )
 			Log.Exception( err )
 			return
 		}
@@ -178,7 +180,7 @@ func _RetrieveOptionChains( acQuotes map[string]osch.Quote, acWaitGroup *sync.Wa
 
 	gcPrintLock.Lock()
 	if ! gbRptAHeadingsPrinted {
-		fmt.Printf( "RA: Report: Range: %.0f/%.0f  %s\n",	lfLowRange, lfHighRange, gcExecutorB.GetOriginalText() )
+		fmt.Printf( "RA: Report: Range: %.0f/%.0f  %s\n",	lfLowRange, lfHighRange, gcExecutorA.GetOriginalText() )
 		gbRptAHeadingsPrinted = true
 	}
 	if ! gbRptBHeadingsPrinted {
@@ -212,6 +214,7 @@ func _RetrieveOptionChains( acQuotes map[string]osch.Quote, acWaitGroup *sync.Wa
   	// gcPrintLock.Lock()
     lcVars := make( map[string]any )
     lcVars["highest.call.bid"] = 0.0
+    lcVars["highest.call.sto.pct"] = 0.0
     lcESa, err := lcChain.FindUsing( gcExecutorA, &lcVars )
     lcESb, err := lcChain.FindUsing( gcExecutorB, nil )
 	//   gcPrintLock.Unlock()
